@@ -1,0 +1,28 @@
+services:
+  bot:
+    # Pinned tag, never `latest`. This is what makes it possible to answer
+    # "which build is running?" and to roll back by editing one line. With
+    # `latest` + `pull_policy: always`, neither question had an answer.
+    image: brittinho/britticobot:${BOT_VERSION}
+    container_name: britticobot
+    restart: unless-stopped
+    ports:
+      - "${BOT_PORT}:3000"
+    volumes:
+      # Database, feed images, avatars and shop images all live under this one
+      # directory. It is the only state that needs backing up.
+      - ${BOT_DATA_HOST_PATH}:/app/db
+    environment:
+      DB_PATH: /app/db/britticobot.db
+    # The ~35 secrets moved out of the compose body, so this file can be
+    # committed while the .env stays on the NAS. See .env.example.
+    env_file: .env
+    healthcheck:
+      # Not "/": that route answers 200 as long as Express is up, even with the
+      # database gone. /healthz queries the database before answering, which is
+      # what makes Dockge report "healthy" instead of merely "running".
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:3000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

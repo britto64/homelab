@@ -1,0 +1,30 @@
+# The server-side of brittinho.com. Visit analytics today; the site's flat-file
+# data as it moves off the shared host.
+#
+# It used to run inside the britticobot container, which meant touching the
+# site's analytics restarted the Twitch bot, and restarting the bot dropped
+# tracking events. Separate stack, separate image, separate repository —
+# see ADR 004.
+
+services:
+  backend:
+    image: brittinho/brittinho-backend:${BACKEND_VERSION}
+    container_name: brittinho-backend
+    restart: unless-stopped
+    ports:
+      - "${BACKEND_PORT}:3002"
+    volumes:
+      # analytics.db plus the guestbox snapshot JPEGs. The only state to back up.
+      - ${BACKEND_DATA_HOST_PATH}:/app/data
+    environment:
+      DATA_DIR: /app/data
+      PORT: "3002"
+    env_file: .env
+    healthcheck:
+      # Queries the database before answering, so "healthy" means the service
+      # can actually do its job — not merely that the process is alive.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:3002/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s

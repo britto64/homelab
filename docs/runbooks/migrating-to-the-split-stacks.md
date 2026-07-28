@@ -203,11 +203,27 @@ The original stays where it is. Leave it until you are satisfied, then delete.
 
 ## 5. Start the new stacks
 
+> **The old stack has to come down first.** The old directory is
+> `stacks/brittico-bot` (with a hyphen) and the new one is `stacks/britticobot`,
+> so they coexist as directories — but both composes declare
+> `container_name: britticobot` and `container_name: cloudflared-tunnel`, and
+> Docker refuses to create a container whose name is already taken.
+>
+> That is also why the tunnel blinks here: the old stack owns
+> `cloudflared-tunnel` until it stops. It is the only interruption in this
+> runbook, and it lasts as long as you take over the next three commands.
+
 ```sh
+cd /mnt/StorageHD1/stacks/brittico-bot
+docker compose down          # takes the bot AND the tunnel with it
+
+cd /mnt/StorageHD1/homelab
 docker compose -f stacks/cloudflared/compose.yaml up -d
 docker compose -f stacks/brittinho-backend/compose.yaml up -d
 docker compose -f stacks/britticobot/compose.yaml up -d
 ```
+
+The old directory stays untouched. It is the rollback.
 
 `docker ps` should show **healthy**, not just **up**. That distinction is the
 whole point of the healthcheck: it queries the database before answering, so
@@ -279,10 +295,18 @@ While you are uploading, the Minecraft removal goes up too:
 The old `compose.txt` still exists and still works. Bringing it back:
 
 ```sh
+cd /mnt/StorageHD1/homelab
 docker compose -f stacks/britticobot/compose.yaml down
 docker compose -f stacks/brittinho-backend/compose.yaml down
-# then start the old stack from Dockge as before
+docker compose -f stacks/cloudflared/compose.yaml down
+
+cd /mnt/StorageHD1/stacks/brittico-bot
+docker compose up -d
 ```
+
+Bringing all three down first matters for the same reason as step 5: the old
+stack cannot claim `britticobot` and `cloudflared-tunnel` while the new ones
+hold those names.
 
 The analytics data was copied, not moved, so the original is untouched.
 

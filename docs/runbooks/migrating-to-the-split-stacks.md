@@ -286,9 +286,19 @@ The Path field is a **regular expression**, so `.*` and not `*`. Some dashboard
 versions want it without a leading slash and some with — match whatever the
 existing rule uses.
 
-First match wins, so the catch-all rule (no path) must sit **last**. If the
-dashboard lets you drag to reorder, drag it down. If it does not, delete the
-catch-all and recreate it: new rules land at the bottom.
+First match wins, so the catch-all rule (no path) must sit **last**. A rule with
+a hostname and no path matches every path on that hostname, so with it first the
+three specific rules are never reached — and the failure is quiet: analytics
+requests get a plausible `404` from the bot instead of an error.
+
+The dashboard has no drag handles. Check the row's `...` menu for a move option;
+failing that, delete the catch-all and add it again, since new rules land at the
+bottom.
+
+Deleting is safe even though the dialog offers no way to keep the DNS record:
+all four rules share the `api.brittinho.com` record, and it is only removed with
+the last rule using that hostname. Three remain. If it did disappear, re-adding
+the route recreates it.
 
 Container names resolve because all three stacks join the `edge` network from
 step 5. Neither service publishes a host port — the tunnel is the only way in,
@@ -313,8 +323,16 @@ curl -s -o /dev/null -w "analytics  %{http_code}\n" https://api.brittinho.com/ap
 | `track` | `400` | the **backend** answered, rejecting an empty body |
 | `analytics` | `401` | the **backend** answered, asking for the token |
 
-`404` on `track` means the bot took it and the path rule did not match. `502`
-means the rule matched but the container was not found.
+`404` on `track` means the bot took it: either the catch-all is still ahead of
+the specific rules, or the path did not match. Fix the order first — that is the
+common case. If it persists with the catch-all last, try the path with a leading
+slash (`/api/track`), which some dashboard versions expect.
+
+`502` means the rule matched but the container was not found — check the `edge`
+network.
+
+None of this involves the shared host. These requests reach the tunnel directly,
+so nothing here depends on having uploaded anything to Hostinger yet.
 
 The `401` is correct at this stage: only `proxy.php` carries the bearer token,
 which is what step 7 puts in place.

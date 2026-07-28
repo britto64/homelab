@@ -253,18 +253,42 @@ Cloudflare Zero Trust is where the tunnel's routing rules live. Your tunnel is
 the token-based kind, so the rules are held in Cloudflare's dashboard rather
 than in a config file on the NAS.
 
-Go to **one.dash.cloudflare.com → Networks → Tunnels → your tunnel → Public
-Hostname**.
+Go to **one.dash.cloudflare.com → Networks → Tunnels → your tunnel →
+Configure**. Depending on the dashboard version the list of rules is under a
+**Public Hostname** tab or a **Routes** tab; they are the same thing.
 
-There is one rule there today, sending everything on `api.brittinho.com` to the
-bot. Add three more **above** it — first match wins, so order matters:
+**First, fix the rule that already exists.** It points at `http://bot:3000` —
+`bot` was the *service* name inside the old single-stack compose, and that name
+no longer exists. Change it to `http://britticobot:3000`.
 
-| Hostname | Path | Service |
-| --- | --- | --- |
-| `api.brittinho.com` | `api/track` | `http://brittinho-backend:3002` |
-| `api.brittinho.com` | `api/gbtrack` | `http://brittinho-backend:3002` |
-| `api.brittinho.com` | `api/analytics/*` | `http://brittinho-backend:3002` |
-| `api.brittinho.com` | *(empty — leave last)* | `http://britticobot:3000` |
+The Service URL field wants the protocol. `britticobot:3000` is rejected with
+"must start with protocol like https://, tcp://"; `http://britticobot:3000` is
+what it wants.
+
+That one edit is enough to bring the site back. Check before going further:
+
+```sh
+curl -s -o /dev/null -w "%{http_code}\n" https://api.brittinho.com/healthz
+```
+
+`200` means the tunnel resolved the bot over the `edge` network. `502` means the
+name did not resolve.
+
+**Then add three routes**, all on `api.brittinho.com`:
+
+| Path | Service URL |
+| --- | --- |
+| `api/track` | `http://brittinho-backend:3002` |
+| `api/gbtrack` | `http://brittinho-backend:3002` |
+| `api/analytics/.*` | `http://brittinho-backend:3002` |
+
+The Path field is a **regular expression**, so `.*` and not `*`. Some dashboard
+versions want it without a leading slash and some with — match whatever the
+existing rule uses.
+
+First match wins, so the catch-all rule (no path) must sit **last**. If the
+dashboard lets you drag to reorder, drag it down. If it does not, delete the
+catch-all and recreate it: new rules land at the bottom.
 
 Container names resolve because all three stacks join the `edge` network from
 step 5. Neither service publishes a host port — the tunnel is the only way in,
@@ -272,6 +296,28 @@ which is how the original single-stack setup behaved as well.
 
 Publishing ports instead would work, but it would put the API on the LAN and it
 collides here anyway: `firefly_iii` already holds host port 3000.
+
+### Confirm each path reached the right service
+
+```sh
+curl -s -o /dev/null -w "healthz    %{http_code}\n" https://api.brittinho.com/healthz
+curl -s -o /dev/null -w "stats      %{http_code}\n" https://api.brittinho.com/api/stats/global
+curl -s -o /dev/null -w "track      %{http_code}\n" -X POST https://api.brittinho.com/api/track
+curl -s -o /dev/null -w "analytics  %{http_code}\n" https://api.brittinho.com/api/analytics/summary
+```
+
+| Route | Expected | Meaning |
+| --- | --- | --- |
+| `healthz` | `200` | the bot answered |
+| `stats` | `200` | the bot answered |
+| `track` | `400` | the **backend** answered, rejecting an empty body |
+| `analytics` | `401` | the **backend** answered, asking for the token |
+
+`404` on `track` means the bot took it and the path rule did not match. `502`
+means the rule matched but the container was not found.
+
+The `401` is correct at this stage: only `proxy.php` carries the bearer token,
+which is what step 7 puts in place.
 
 ---
 

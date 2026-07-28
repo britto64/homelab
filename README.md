@@ -33,6 +33,7 @@ Every stack follows the same three rules:
 | --- | --- |
 | [`art-school`](stacks/art-school/) | Self-hosted video course player, reading a course library from the NAS |
 | [`britticobot`](stacks/britticobot/) | Twitch and Kick chat bot, plus the API behind the `/kennzy/` pages on brittinho.com |
+| [`brittinho-backend`](stacks/brittinho-backend/) | Server-side of brittinho.com: visit analytics, and the site's flat-file data as it moves off shared hosting |
 | [`cloudflared`](stacks/cloudflared/) | Cloudflare tunnel publishing `api.brittinho.com` without opening a port |
 
 ## Decisions
@@ -43,6 +44,7 @@ written so the reasoning survives after the context is forgotten.
 - [001 — Bind mounts instead of named volumes](docs/decisoes/001-bind-mounts-instead-of-named-volumes.md)
 - [002 — Symlinks into the Dockge stacks directory](docs/decisoes/002-symlinks-into-the-dockge-stacks-directory.md)
 - [003 — One stack per lifecycle, not per project](docs/decisoes/003-one-stack-per-lifecycle.md)
+- [004 — Split services by product, not by repository size](docs/decisoes/004-splitting-services-by-product-not-by-repo-size.md)
 
 ## Status
 
@@ -51,4 +53,4 @@ repository existed; they are being moved in one at a time, so an unmigrated
 stack is never at risk from a change to a migrated one. ADR 002 covers how the
 two locations coexist meanwhile.
 
-Migrated so far: `art-school`, `britticobot`, `cloudflared`.
+Migrated so far: `art-school`, `britticobot`, `brittinho-backend`, `cloudflared`.

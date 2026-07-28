@@ -82,19 +82,37 @@ curl -s https://hub.docker.com/v2/repositories/brittinho/brittinho-backend/tags 
 
 ## 2. Getting a shell on the NAS
 
-> **`Permission denied (publickey)` on SSH?** That is the TrueNAS default, not a
-> broken key: the SSH service ships with password authentication disabled, and
-> every user answers `publickey` until a key is registered.
+Everything from here needs to write into the repository, create symlinks under
+`/mnt/StorageHD1/stacks`, and talk to the Docker socket. All three want an
+administrative account.
+
+**The shortest path is the TrueNAS web Shell** (*System → Shell*). It hands you
+an administrative session with no SSH, no key and no sudo involved, and every
+command in this runbook works there. Dockge also has a terminal per stack.
+
+### If you would rather use SSH
+
+Two failures look similar and are not:
+
+> **`Permission denied (publickey)`** is the TrueNAS default, not a broken key.
+> The SSH service ships with password authentication disabled, so every user
+> answers this until a key is registered. Paste `~/.ssh/id_ed25519.pub` into the
+> user's **Authorized Keys** field under *Credentials → Local Users*. Check the
+> same screen for the shell being a real one and not `nologin` — that fails
+> identically with a perfectly good key.
+
+> **Logged in, but `sudo` says you are not in the sudoers file, and git cannot
+> write to `~/.gitconfig`** — you are on a share account, not an admin one. A
+> user who cannot write to their own home is usually an SMB user whose home
+> directory was never set up. Nothing in this runbook will work from there; the
+> Docker socket alone needs root or the `docker` group. Find the administrative
+> user under *Credentials → Local Users* — the one with sudo enabled — and put
+> the key on that account instead.
 >
-> **Without fixing anything:** TrueNAS has a Shell in the web UI under
-> *System → Shell*, and Dockge has a terminal per stack. Every command in this
-> runbook works there.
->
-> **To fix it properly:** in *Credentials → Local Users*, confirm the user has a
-> real shell (not `nologin` — the most common cause of `publickey` even with the
-> right key), then paste `~/.ssh/id_ed25519.pub` into its **Authorized Keys**
-> field. Enabling password login under *System → Services → SSH* also works, but
-> leaves the service open to brute force on the LAN.
+> For read-only inspection as a restricted user, `safe.directory` can be passed
+> per command without writing any config:
+> `git -c safe.directory=/mnt/StorageHD1/homelab log --oneline`. `git pull`
+> still writes, so this does not get you past step 3.
 
 ---
 

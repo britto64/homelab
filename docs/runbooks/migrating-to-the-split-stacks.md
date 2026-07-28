@@ -213,6 +213,17 @@ The original stays where it is. Leave it until you are satisfied, then delete.
 > `cloudflared-tunnel` until it stops. It is the only interruption in this
 > runbook, and it lasts as long as you take over the next three commands.
 
+The shared network has to exist first. It is declared `external` in all three
+composes because it outlives them: created once, by hand, and every stack
+attaches to it.
+
+```sh
+docker network create edge
+```
+
+Without it, each stack lands on its own bridge and cloudflared cannot resolve
+the services it fronts — the price of splitting one stack into three.
+
 ```sh
 cd /mnt/StorageHD1/stacks/brittico-bot
 docker compose down          # takes the bot AND the tunnel with it
@@ -255,9 +266,12 @@ bot. Add three more **above** it — first match wins, so order matters:
 | `api.brittinho.com` | `api/analytics/*` | `http://brittinho-backend:3002` |
 | `api.brittinho.com` | *(empty — leave last)* | `http://britticobot:3000` |
 
-For the container names to resolve, the two stacks must share a Docker network.
-If Dockge puts each stack on its own, use the NAS's own address
-(`http://<nas-ip>:3002` and `http://<nas-ip>:3000`) instead.
+Container names resolve because all three stacks join the `edge` network from
+step 5. Neither service publishes a host port — the tunnel is the only way in,
+which is how the original single-stack setup behaved as well.
+
+Publishing ports instead would work, but it would put the API on the LAN and it
+collides here anyway: `firefly_iii` already holds host port 3000.
 
 ---
 

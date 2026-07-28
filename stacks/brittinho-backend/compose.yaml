@@ -11,8 +11,9 @@ services:
     image: brittinho/brittinho-backend:${BACKEND_VERSION}
     container_name: brittinho-backend
     restart: unless-stopped
-    ports:
-      - "${BACKEND_PORT}:3002"
+    # Reached through the tunnel on the `edge` network, not from the LAN.
+    networks:
+      - edge
     volumes:
       # analytics.db plus the guestbox snapshot JPEGs. The only state to back up.
       - ${BACKEND_DATA_HOST_PATH}:/app/data
@@ -28,3 +29,12 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+
+networks:
+  # Shared network so the tunnel can resolve the services it fronts by name.
+  # Declared external: it is created once, by hand, and outlives every stack:
+  #   docker network create edge
+  # Without it each stack would land on its own bridge and cloudflared could
+  # not reach anything — which is the price of splitting the stacks apart.
+  edge:
+    external: true

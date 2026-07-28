@@ -6,8 +6,12 @@ services:
     image: brittinho/britticobot:${BOT_VERSION}
     container_name: britticobot
     restart: unless-stopped
-    ports:
-      - "${BOT_PORT}:3000"
+    # No published port, deliberately. The API is reached through the tunnel on
+    # the `edge` network below, never from the LAN — which is how the old
+    # single-stack setup worked too. Publishing 3000 also collides with
+    # firefly_iii on this host.
+    networks:
+      - edge
     volumes:
       # Database, feed images, avatars and shop images all live under this one
       # directory. It is the only state that needs backing up.
@@ -26,3 +30,12 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+
+networks:
+  # Shared network so the tunnel can resolve the services it fronts by name.
+  # Declared external: it is created once, by hand, and outlives every stack:
+  #   docker network create edge
+  # Without it each stack would land on its own bridge and cloudflared could
+  # not reach anything — which is the price of splitting the stacks apart.
+  edge:
+    external: true

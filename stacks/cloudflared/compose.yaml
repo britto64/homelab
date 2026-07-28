@@ -14,6 +14,10 @@ services:
     image: cloudflare/cloudflared:${CLOUDFLARED_VERSION}
     container_name: cloudflared-tunnel
     restart: unless-stopped
+    # Joins the shared network so it can resolve britticobot and
+    # brittinho-backend by container name.
+    networks:
+      - edge
     # --metrics exposes /ready, the only way to tell that the tunnel is actually
     # connected to the edge rather than merely running as a process.
     command: tunnel --no-autoupdate --metrics 0.0.0.0:2000 run
@@ -33,3 +37,12 @@ services:
     # To watch it from outside, /ready is at http://<nas-ip>:2000/ready once you
     # publish port 2000. It is not published here: that endpoint is a diagnostic
     # and does not need to be reachable at all times.
+
+networks:
+  # Shared network so the tunnel can resolve the services it fronts by name.
+  # Declared external: it is created once, by hand, and outlives every stack:
+  #   docker network create edge
+  # Without it each stack would land on its own bridge and cloudflared could
+  # not reach anything — which is the price of splitting the stacks apart.
+  edge:
+    external: true

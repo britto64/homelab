@@ -1,0 +1,35 @@
+# The tunnel that publishes api.brittinho.com. A separate stack on purpose.
+#
+# It used to live inside the bot's stack with `depends_on: bot`, so restarting
+# the bot cycled the tunnel — and everything behind it went down too, not just
+# the bot. Here it comes up once and stays; the containers behind it restart
+# freely.
+#
+# No `depends_on`, deliberately: if the bot is down, the right outcome is the
+# tunnel answering 502 (and Cloudflare showing its origin-unreachable page),
+# not the hostname disappearing from the internet alongside it.
+
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:${CLOUDFLARED_VERSION}
+    container_name: cloudflared-tunnel
+    restart: unless-stopped
+    # --metrics exposes /ready, the only way to tell that the tunnel is actually
+    # connected to the edge rather than merely running as a process.
+    command: tunnel --no-autoupdate --metrics 0.0.0.0:2000 run
+    environment:
+      # Tunnel token. This is a remotely-managed tunnel, so the ingress rules
+      # (including path-based routing) live in the Zero Trust dashboard under
+      # Networks > Tunnels > Public Hostname — not in this file.
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN}
+    env_file: .env
+
+    # No healthcheck, on purpose. The cloudflared image is distroless: no shell,
+    # no wget, no curl, so /ready cannot be queried from inside the container.
+    # A check invoking the binary itself (`cloudflared --version`) would pass
+    # unconditionally — worse than having none, because it would report
+    # "healthy" while the tunnel sat disconnected.
+    #
+    # To watch it from outside, /ready is at http://<nas-ip>:2000/ready once you
+    # publish port 2000. It is not published here: that endpoint is a diagnostic
+    # and does not need to be reachable at all times.

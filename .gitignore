@@ -3,6 +3,10 @@
 *.env
 !*.env.example
 
+# Local staging area: filled-in .env files ready to copy to the NAS, and the
+# notes that go with them. Never leaves this machine.
+local/
+
 # Keys
 *.key
 *.pem

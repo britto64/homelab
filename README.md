@@ -15,6 +15,7 @@ service lives in its own repository.
 stacks/<name>/compose.yaml    one stack per service
 stacks/<name>/.env.example    every variable the stack needs, documented
 docs/decisoes/                architecture decision records
+docs/runbooks/                step-by-step for the things done rarely
 ```
 
 Every stack follows the same three rules:
@@ -45,6 +46,12 @@ written so the reasoning survives after the context is forgotten.
 - [002 — Symlinks into the Dockge stacks directory](docs/decisoes/002-symlinks-into-the-dockge-stacks-directory.md)
 - [003 — One stack per lifecycle, not per project](docs/decisoes/003-one-stack-per-lifecycle.md)
 - [004 — Split services by product, not by repository size](docs/decisoes/004-splitting-services-by-product-not-by-repo-size.md)
+
+## Runbooks
+
+Procedures that are run rarely enough to be forgotten between runs.
+
+- [Migrating to the split stacks](docs/runbooks/migrating-to-the-split-stacks.md)
 
 ## Status
 

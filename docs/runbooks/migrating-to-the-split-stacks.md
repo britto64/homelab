@@ -27,7 +27,7 @@ copied rather than moved.
 ## Before you start
 
 - [ ] The three filled-in `.env` files (from `local/` on your machine)
-- [ ] SSH access to the NAS, or the Dockge terminal
+- [ ] A shell on the NAS — SSH, the TrueNAS web Shell, or the Dockge terminal (step 2)
 - [ ] Both images on Docker Hub — see step 1
 
 ---
@@ -75,12 +75,30 @@ curl -s https://hub.docker.com/v2/repositories/brittinho/brittinho-backend/tags 
 > your current production stack still uses `:latest` with
 > `pull_policy: always`. Nothing changes until that stack restarts — but if it
 > does restart before you finish this runbook, it will pull a bot with no
-> analytics in it, and the `/britto/` panel will break until step 6. The bot
+> analytics in it, and the `/britto/` panel will break until step 7. The bot
 > itself keeps working.
 
 ---
 
-## 2. Put the stacks on the NAS
+## 2. Getting a shell on the NAS
+
+> **`Permission denied (publickey)` on SSH?** That is the TrueNAS default, not a
+> broken key: the SSH service ships with password authentication disabled, and
+> every user answers `publickey` until a key is registered.
+>
+> **Without fixing anything:** TrueNAS has a Shell in the web UI under
+> *System → Shell*, and Dockge has a terminal per stack. Every command in this
+> runbook works there.
+>
+> **To fix it properly:** in *Credentials → Local Users*, confirm the user has a
+> real shell (not `nologin` — the most common cause of `publickey` even with the
+> right key), then paste `~/.ssh/id_ed25519.pub` into its **Authorized Keys**
+> field. Enabling password login under *System → Services → SSH* also works, but
+> leaves the service open to brute force on the LAN.
+
+---
+
+## 3. Put the stacks on the NAS
 
 Following ADR 002 — the repository is cloned outside the Dockge directory and
 each migrated stack is symlinked in.
@@ -119,7 +137,7 @@ cd stacks/britticobot && docker compose config | grep -i "=$"    # expect nothin
 
 ---
 
-## 3. Move the analytics data
+## 4. Move the analytics data
 
 **Stop the bot first.** Copying a live SQLite database gives you a torn file.
 
@@ -147,7 +165,7 @@ The original stays where it is. Leave it until you are satisfied, then delete.
 
 ---
 
-## 4. Start the new stacks
+## 5. Start the new stacks
 
 ```sh
 docker compose -f stacks/cloudflared/compose.yaml up -d
@@ -164,7 +182,7 @@ new configuration fails at boot on purpose rather than running half-working.
 
 ---
 
-## 5. Route the tunnel by path
+## 6. Route the tunnel by path
 
 Until this step the new service is running but nothing reaches it.
 
@@ -191,7 +209,7 @@ If Dockge puts each stack on its own, use the NAS's own address
 
 ---
 
-## 6. Update the site
+## 7. Update the site
 
 One file, uploaded by FTP like any other site change:
 
@@ -208,7 +226,7 @@ While you are uploading, the Minecraft removal goes up too:
 
 ---
 
-## 7. Check it actually works
+## 8. Check it actually works
 
 - [ ] `docker ps` — three containers, all **healthy**
 - [ ] Open `brittinho.com`, then check the visit appears in the `/britto/` panel
@@ -247,4 +265,4 @@ Two things are worth doing once this has settled:
   of real use before taking that step.
 - **Update the backup script.** WAL means `-wal` and `-shm` files sit beside the
   `.db`. Copying only the `.db` captures an incomplete snapshot — the backup has
-  to use `sqlite3 .backup`, exactly as step 3 does.
+  to use `sqlite3 .backup`, exactly as step 4 does.

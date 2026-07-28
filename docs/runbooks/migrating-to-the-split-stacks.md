@@ -28,40 +28,55 @@ copied rather than moved.
 
 - [ ] The three filled-in `.env` files (from `local/` on your machine)
 - [ ] SSH access to the NAS, or the Dockge terminal
-- [ ] Both repositories pushed, and both images built — see step 1
+- [ ] Both images on Docker Hub — see step 1
 
 ---
 
 ## 1. Get the images built
 
-Dockge pulls from Docker Hub; it never builds. So both repositories have to
-reach GitHub before there is anything to deploy.
+Dockge pulls from Docker Hub; it never builds. Both repositories have to reach
+GitHub for there to be anything to deploy.
+
+Already done:
+
+- `britto64/britticobot` — merged to `main`, built, published as `1.2.0`,
+  `sha-431ba9c` and `latest`
+- `britto64/brittinho.com` — merged to `main`
+- `britto64/homelab` — merged to `main`
+- `britto64/brittinho-backend` — created and pushed
+
+**Still to do: the backend's build fails at the Docker Hub login**, because a
+new repository starts with no secrets. Everything before that step passed,
+including the typecheck — this is the only thing missing.
+
+Go to **github.com/britto64/brittinho-backend → Settings → Secrets and
+variables → Actions → New repository secret** and add the same two the bot
+already has:
+
+| Name | Value |
+| --- | --- |
+| `DOCKERHUB_USERNAME` | `brittinho` |
+| `DOCKERHUB_TOKEN` | an access token from hub.docker.com → Account Settings → Personal access tokens |
+
+Then **Actions → the failed run → Re-run all jobs**.
+
+Confirm the image exists before continuing:
 
 ```sh
-# britticobot
-cd 1.bot_twitch
-git push origin refactor/desacoplar-stack     # then merge to main on GitHub
-
-# brittinho-backend — a brand new repository
-cd 2.site_brittinho_backend
-gh repo create brittinho-backend --private --source=. --push
+curl -s https://hub.docker.com/v2/repositories/brittinho/brittinho-backend/tags | head -c 200
 ```
 
-The new repository needs two secrets set under **Settings → Secrets and
-variables → Actions**, the same ones the bot already uses:
+> **If you would rather not use Docker Hub for this**, build on the NAS instead:
+> clone the repository there and
+> `docker build --target runner -t brittinho/brittinho-backend:1.0.0 .`.
+> The stack then finds the image locally. You lose the build-on-push.
 
-- `DOCKERHUB_USERNAME`
-- `DOCKERHUB_TOKEN`
-
-Each push to `main` runs the workflow. Confirm both images exist on Docker Hub
-before continuing:
-
-- `brittinho/britticobot:1.2.0`
-- `brittinho/brittinho-backend:1.0.0`
-
-> **If you would rather not use GitHub for this**, you can build on the NAS
-> instead: clone the repository there and `docker build -t brittinho/brittinho-backend:1.0.0 .`.
-> The stack then finds the image locally. You lose the automatic build on push.
+> ⚠️ **The clock is running.** Publishing the bot moved the `:latest` tag, and
+> your current production stack still uses `:latest` with
+> `pull_policy: always`. Nothing changes until that stack restarts — but if it
+> does restart before you finish this runbook, it will pull a bot with no
+> analytics in it, and the `/britto/` panel will break until step 6. The bot
+> itself keeps working.
 
 ---
 
@@ -79,12 +94,21 @@ ln -s "$PWD/stacks/cloudflared"        /mnt/StorageHD1/stacks/cloudflared
 ln -s "$PWD/stacks/brittinho-backend"  /mnt/StorageHD1/stacks/brittinho-backend
 ```
 
-Copy the three `.env` files next to their `compose.yaml`, then lock them down —
+Copy the three filled-in `.env` files up from your machine, then lock them down —
 they hold every credential the services use:
 
 ```sh
+# from your machine, in the homelab clone
+scp local/britticobot.env        NAS:/mnt/StorageHD1/<homelab>/stacks/britticobot/.env
+scp local/cloudflared.env        NAS:/mnt/StorageHD1/<homelab>/stacks/cloudflared/.env
+scp local/brittinho-backend.env  NAS:/mnt/StorageHD1/<homelab>/stacks/brittinho-backend/.env
+
+# then, on the NAS
 chmod 600 stacks/*/.env
 ```
+
+No SSH? Dockge has a per-stack environment editor, and its built-in terminal
+takes a paste. `local/SECRETS.md` lists every value.
 
 Check that compose resolves with no blanks. An empty variable here becomes a
 service that starts and misbehaves rather than one that fails loudly:

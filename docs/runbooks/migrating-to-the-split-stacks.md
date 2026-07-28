@@ -104,12 +104,30 @@ Following ADR 002 — the repository is cloned outside the Dockge directory and
 each migrated stack is symlinked in.
 
 ```sh
-cd /mnt/StorageHD1/<wherever homelab is cloned>
+cd /mnt/StorageHD1/homelab
 git pull
 
 ln -s "$PWD/stacks/britticobot"        /mnt/StorageHD1/stacks/britticobot
 ln -s "$PWD/stacks/cloudflared"        /mnt/StorageHD1/stacks/cloudflared
 ln -s "$PWD/stacks/brittinho-backend"  /mnt/StorageHD1/stacks/brittinho-backend
+```
+
+> **`fatal: detected dubious ownership`** means the directory belongs to a
+> different user than the one running git. Run the line git suggests:
+> `git config --global --add safe.directory /mnt/StorageHD1/homelab`.
+>
+> That silences the warning but grants nothing — `git pull` still has to write,
+> and so do the `.env` files in the next step. If permission errors follow,
+> check `ls -ld /mnt/StorageHD1/homelab` against `id`. Either run git as the
+> owner (`sudo -u <owner> git pull`) or take the directory
+> (`sudo chown -R <you>:<you> /mnt/StorageHD1/homelab`). Prefer the first if the
+> dataset is also shared over SMB, where ownership affects who sees what.
+
+Confirm the pull actually brought everything:
+
+```sh
+ls           # README.md  docs  stacks
+ls stacks/   # art-school  britticobot  brittinho-backend  cloudflared
 ```
 
 Copy the three filled-in `.env` files up from your machine, then lock them down —

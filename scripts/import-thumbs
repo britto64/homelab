@@ -125,9 +125,23 @@ MSG
 fi
 
 # --- transfer -----------------------------------------------------------------
-echo "enviando para $NAS:$REMOTE_STAGING ..."
+# rsync when it is there, tar over ssh when it is not.
+#
+# rsync has to exist on BOTH ends, and it is not part of a base Arch install — so
+# the machine that ships this can be missing it while the NAS has it. For a
+# one-shot copy of a directory that does not exist on the other side yet there is
+# nothing for rsync's delta logic to do anyway: tar down one pipe is the same
+# bytes in the same single connection.
+echo "enviando $size para $NAS:$REMOTE_STAGING ..."
 ssh "$NAS" "rm -rf $REMOTE_STAGING && mkdir -p $REMOTE_STAGING"
-rsync -a --info=progress2 "$UPLOADS/" "$NAS:$REMOTE_STAGING/"
+
+if command -v rsync >/dev/null && ssh "$NAS" 'command -v rsync >/dev/null'; then
+  rsync -a --info=progress2 "$UPLOADS/" "$NAS:$REMOTE_STAGING/"
+else
+  echo "(sem rsync nas duas pontas — mandando com tar; sem barra de progresso)"
+  # -C so the archive holds paths relative to the export, not the temp directory.
+  tar -C "$UPLOADS" -cf - . | ssh "$NAS" "tar -C $REMOTE_STAGING -xf -"
+fi
 echo
 
 remote_script() { sed -n '/^# ---8<--- REMOTE/,/^# ---8<--- END/p' "$0"; }

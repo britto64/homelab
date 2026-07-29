@@ -53,6 +53,7 @@ written so the reasoning survives after the context is forgotten.
 Procedures that are run rarely enough to be forgotten between runs.
 
 - [Operating the stacks from a shell](docs/runbooks/operating-the-stacks.md) — restart, update, change config, roll back
+- [Publishing brittico.xyz](docs/runbooks/publishing-brittico-xyz.md) — the site's own domain, from the image to the tunnel route
 - [Migrating to the split stacks](docs/runbooks/migrating-to-the-split-stacks.md) — the one-time move, done 2026-07-28
 
 ## Status

@@ -20,7 +20,14 @@ services:
       # /healthz is a fixed 200 from nginx itself, which is the honest signal
       # here — unlike the bot's, there is no database behind this to consult,
       # so there is nothing more for the check to prove.
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost/healthz"]
+      #
+      # 127.0.0.1 and not `localhost`, which is what reported this container
+      # unhealthy for half an hour while it served every page correctly:
+      # `listen 80` binds IPv4 only, and inside the container `localhost` can
+      # resolve to ::1 first. The bot survives the identical check because Node
+      # opens a dual-stack socket — an accident, not a design, so do not read
+      # its version of this line as the one to copy.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/healthz"]
       interval: 30s
       timeout: 5s
       retries: 3

@@ -1,9 +1,9 @@
-# The Brittico site: the /kennzy/ pages, moved off brittinho.com's shared host
-# and onto this box. Static files behind nginx — no database, no state.
+# The Brittico site: brittico.xyz, moved off brittinho.com's shared host and
+# onto this box. Static files behind nginx — no database, no state.
 #
 # This is the first stack here whose content is the product. If it is down, the
-# site is down; there is no shared host still serving a copy once phase 4 of the
-# migration completes. Until then brittinho.com/kennzy/ is the fallback.
+# site is down; there is no shared host still serving a copy once the migration
+# retires the old paths. Until then brittinho.com/kennzy/ is the fallback.
 
 services:
   site:
@@ -14,19 +14,12 @@ services:
     # as britticobot and brittinho-backend. No port published.
     networks:
       - edge
-    volumes:
-      # The Godot export of the island: index.wasm alone is 38 MB. It is kept
-      # out of the image on purpose, so a site release does not drag 38 MB of
-      # unchanged game with it and a new game export does not need a site
-      # release. :ro — nginx never writes.
-      #
-      # If this path is empty the rest of the site still works; only
-      # /kennzy/ilha/ shows a broken frame.
-      - ${ILHA_GAME_HOST_PATH}:/usr/share/nginx/html/kennzy/ilha/game:ro
+    # No volumes. The image is the whole service: every file it serves is baked
+    # in, so a rollback to an older tag rolls back the content with it.
     healthcheck:
-      # Not "/": that would follow the redirect to /kennzy/ and prove more than
-      # this service can promise. /healthz is a fixed 200 from nginx itself,
-      # which is the honest signal here — there is no database to consult.
+      # /healthz is a fixed 200 from nginx itself, which is the honest signal
+      # here — unlike the bot's, there is no database behind this to consult,
+      # so there is nothing more for the check to prove.
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost/healthz"]
       interval: 30s
       timeout: 5s

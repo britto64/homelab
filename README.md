@@ -33,6 +33,7 @@ Every stack follows the same three rules:
 | Stack | What it is |
 | --- | --- |
 | [`art-school`](stacks/art-school/) | Self-hosted video course player, reading a course library from the NAS |
+| [`brittico-site`](stacks/brittico-site/) | The `/kennzy/` pages themselves, served from here instead of shared hosting |
 | [`britticobot`](stacks/britticobot/) | Twitch and Kick chat bot, plus the API behind the `/kennzy/` pages on brittinho.com |
 | [`brittinho-backend`](stacks/brittinho-backend/) | Server-side of brittinho.com: visit analytics, and the site's flat-file data as it moves off shared hosting |
 | [`cloudflared`](stacks/cloudflared/) | Cloudflare tunnel publishing `api.brittinho.com` without opening a port |
@@ -62,3 +63,7 @@ stack is never at risk from a change to a migrated one. ADR 002 covers how the
 two locations coexist meanwhile.
 
 Migrated so far: `art-school`, `britticobot`, `brittinho-backend`, `cloudflared`.
+
+`brittico-site` is new rather than migrated: it is the first stack here that
+serves a product's content rather than its API, and it arrives from shared
+hosting instead of from the old Dockge setup.

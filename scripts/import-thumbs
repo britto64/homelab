@@ -1,0 +1,257 @@
+#!/usr/bin/env bash
+#
+# Import the thumbnail library from brittinho.com into britticobot, over SSH.
+#
+#   scripts/import-thumbs ~/Downloads/uploads.zip     from the download
+#   scripts/import-thumbs ~/somewhere/uploads/        from an extracted copy
+#   scripts/import-thumbs ~/Downloads/uploads.zip -n  dry run, writes nothing
+#
+# One-time migration, run once when /thumbs/ goes live on brittico.xyz. It is
+# re-runnable: the import skips anything already in the database, so a second,
+# larger export adds only what is new.
+#
+# The argument is the PHP tool's `uploads/` directory — images plus the three JSON
+# manifests that describe them. Without the manifests the files are 24-hex names
+# with no category, no label and no dates, so this refuses to run without them.
+#
+# Order is deliberate, same as scripts/deploy: everything that can be checked is
+# checked BEFORE anything is transferred or written. A dry run inside the
+# container is the last gate, and it prints exactly what the real run would do.
+#
+# Default host works with no ~/.ssh/config; override with NAS_HOST=user@host.
+
+set -euo pipefail
+
+NAS="${NAS_HOST:-truenas_admin@192.168.0.82}"
+STACK=britticobot
+CONTAINER=britticobot
+REMOTE_SCRIPT=/tmp/.homelab-import-thumbs.sh
+# Staging lands in /tmp first: the volume lives under /mnt/StorageHD1, which
+# truenas_admin cannot always write to, and rsync has no sudo to borrow.
+REMOTE_STAGING=/tmp/thumbs-import
+
+usage() {
+  sed -n '3,21p' "$0" | sed 's/^# \{0,1\}//'
+  exit "${1:-0}"
+}
+
+case "${1:-}" in -h|--help|"") usage 0 ;; esac
+
+SOURCE="$1"
+DRY=""
+case "${2:-}" in -n|--dry-run) DRY="--dry-run" ;; esac
+
+# --- validate the export locally, before touching the network -----------------
+# A missing manifest is the failure worth catching early: the transfer would
+# succeed, the import would run, and the result would be a library of unnamed
+# files in no category.
+if [ ! -e "$SOURCE" ]; then
+  echo "não existe: $SOURCE" >&2
+  exit 1
+fi
+
+WORK=""
+cleanup_local() { [ -n "$WORK" ] && rm -rf "$WORK"; }
+trap cleanup_local EXIT
+
+case "$SOURCE" in
+  *.zip)
+    command -v unzip >/dev/null || { echo "unzip não encontrado — extraia o .zip e passe a pasta." >&2; exit 1; }
+    WORK="$(mktemp -d)"
+    echo "extraindo $SOURCE ..."
+    unzip -q "$SOURCE" -d "$WORK"
+    # Some exports wrap everything in an `uploads/` folder, some do not.
+    if [ -d "$WORK/uploads" ]; then UPLOADS="$WORK/uploads"; else UPLOADS="$WORK"; fi
+    ;;
+  *)
+    UPLOADS="${SOURCE%/}"
+    [ -d "$UPLOADS" ] || { echo "não é uma pasta nem um .zip: $SOURCE" >&2; exit 1; }
+    ;;
+esac
+
+missing=""
+for f in categories.json library/manifest.json templates/manifest.json; do
+  [ -f "$UPLOADS/$f" ] || missing="$missing $f"
+done
+if [ -n "$missing" ]; then
+  cat >&2 <<MSG
+faltando no export:$missing
+
+Isso é a pasta uploads/ do tool em PHP, e os manifests são o que dá nome,
+categoria e data para cada imagem. Sem eles a importação grava 24 hex sem
+categoria nenhuma. Baixe a pasta inteira, não só as imagens.
+MSG
+  exit 1
+fi
+
+images="$(find "$UPLOADS/library" -type f \( -name '*.png' -o -name '*.jpg' -o -name '*.webp' -o -name '*.gif' \) 2>/dev/null | wc -l)"
+entries="$(grep -o '"id"' "$UPLOADS/library/manifest.json" | wc -l)"
+templates="$(grep -o '"id"' "$UPLOADS/templates/manifest.json" | wc -l)"
+size="$(du -sh "$UPLOADS" | cut -f1)"
+
+echo
+echo "export: $UPLOADS"
+echo "  $images imagens no disco, $entries no manifest"
+echo "  $templates templates"
+echo "  $size no total"
+echo
+
+if [ "$images" -eq 0 ]; then
+  echo "nenhuma imagem encontrada — nada a importar." >&2
+  exit 1
+fi
+
+# --- the remote half needs a terminal ------------------------------------------
+case "${NAS_SUDO:-auto}" in
+  0)    SUDO="" ;;
+  auto) case "$NAS" in root@*) SUDO="" ;; *) SUDO="sudo" ;; esac ;;
+  *)    SUDO="sudo" ;;
+esac
+
+if [ -n "$SUDO" ] && { [ ! -t 0 ] || [ ! -t 1 ]; }; then
+  cat >&2 <<MSG
+scripts/import-thumbs needs a real terminal.
+
+Logging in as $NAS means sudo on the NAS, and sudo asks for a password that has
+to be typed somewhere. There is no terminal here — you are piping it, running it
+from a tool, or from a job.
+
+Open a terminal and run it there. To make it work without one, give root an
+authorized key on the NAS and use:
+
+    NAS_HOST=root@192.168.0.82 scripts/import-thumbs $SOURCE
+MSG
+  exit 1
+fi
+
+# --- transfer -----------------------------------------------------------------
+echo "enviando para $NAS:$REMOTE_STAGING ..."
+ssh "$NAS" "rm -rf $REMOTE_STAGING && mkdir -p $REMOTE_STAGING"
+rsync -a --info=progress2 "$UPLOADS/" "$NAS:$REMOTE_STAGING/"
+echo
+
+remote_script() { sed -n '/^# ---8<--- REMOTE/,/^# ---8<--- END/p' "$0"; }
+
+remote_script | ssh "$NAS" "cat > $REMOTE_SCRIPT"
+if [ -z "$SUDO" ]; then
+  ssh -t "$NAS" "bash $REMOTE_SCRIPT '$STACK' '$CONTAINER' '$REMOTE_STAGING' '$DRY'; rc=\$?; rm -f $REMOTE_SCRIPT; exit \$rc"
+else
+  ssh -t "$NAS" "$SUDO bash $REMOTE_SCRIPT '$STACK' '$CONTAINER' '$REMOTE_STAGING' '$DRY'; rc=\$?; rm -f $REMOTE_SCRIPT; exit \$rc"
+fi
+exit $?
+
+# ---8<--- REMOTE
+set -euo pipefail
+
+STACKS=/mnt/StorageHD1/stacks
+stack="$1"
+container="$2"
+staging="$3"
+dry="${4:-}"
+
+dir="$STACKS/$stack"
+[ -f "$dir/.env" ] || { echo "sem .env em $dir" >&2; exit 1; }
+
+# The volume path is read from the stack's .env rather than hardcoded, for the
+# same reason scripts/deploy reads the version variable there: one source, and it
+# cannot drift from what compose actually mounts.
+data="$(grep '^BOT_DATA_HOST_PATH=' "$dir/.env" | cut -d= -f2-)"
+[ -n "$data" ] || { echo "BOT_DATA_HOST_PATH não está no .env de $stack" >&2; exit 1; }
+[ -d "$data" ] || { echo "o volume não existe: $data" >&2; exit 1; }
+
+docker ps --format '{{.Names}}' | grep -qx "$container" \
+  || { echo "container $container não está rodando — suba o stack primeiro." >&2; exit 1; }
+
+# --- back up the database before writing to it --------------------------------
+# What a rollback restores. The .env.example says it outright: with WAL there are
+# -wal and -shm files beside the .db, so copying the .db alone captures a torn
+# snapshot. `.backup` is the correct way and needs no downtime.
+db="$data/britticobot.db"
+stamp="$(date +%Y%m%d-%H%M%S)"
+backup="$data/britticobot.db.bak-$stamp"
+
+if [ -f "$db" ]; then
+  if command -v sqlite3 >/dev/null; then
+    echo "backup: $backup"
+    sqlite3 "$db" ".backup '$backup'"
+  else
+    echo "AVISO: sqlite3 não está neste host." >&2
+    echo "Copiando .db, -wal e -shm juntos — vale menos que um .backup, mas é o que dá." >&2
+    for ext in "" "-wal" "-shm"; do
+      [ -f "$db$ext" ] && cp -p "$db$ext" "$backup$ext"
+    done
+  fi
+else
+  echo "banco ainda não existe — a importação vai criá-lo. Sem backup a fazer."
+fi
+echo
+
+# --- move the staging copy onto the volume ------------------------------------
+# Inside the container the volume is /app/db, so this path becomes
+# /app/db/thumbs-import there.
+target="$data/thumbs-import"
+rm -rf "$target"
+mv "$staging" "$target"
+# The container runs as node; the bot only reads these, but it has to be able to.
+chmod -R a+rX "$target"
+
+run_import() {
+  docker exec "$container" node dist/scripts/import-thumbs.js /app/db/thumbs-import "$@"
+}
+
+# --- dry run, always ----------------------------------------------------------
+echo "=============== DRY RUN ==============="
+set +e
+run_import --dry-run
+rc=$?
+set -e
+echo "======================================="
+echo
+
+if [ $rc -ne 0 ]; then
+  echo "o dry run terminou com erro ($rc). Nada foi importado." >&2
+  echo "o export continua em $target — dá para inspecionar e rodar de novo." >&2
+  exit $rc
+fi
+
+if [ -n "$dry" ]; then
+  echo "--dry-run pedido: parando aqui. Nada foi gravado."
+  echo "o export ficou em $target; apague quando não precisar mais:"
+  echo "  rm -rf $target"
+  exit 0
+fi
+
+printf 'Importar de verdade? [y/N] '
+read -r answer
+case "$answer" in
+  y|Y|s|S) ;;
+  *) echo "cancelado. Nada foi gravado. O export ficou em $target."; exit 0 ;;
+esac
+echo
+
+# --- the real thing -----------------------------------------------------------
+set +e
+run_import
+rc=$?
+set -e
+echo
+
+if [ $rc -ne 0 ]; then
+  echo "a importação terminou com erro ($rc)." >&2
+  if [ -f "$backup" ]; then
+    echo "para voltar ao estado anterior:" >&2
+    echo "  cd $dir && docker compose stop $container" >&2
+    echo "  rm -f $db $db-wal $db-shm && cp -p $backup $db" >&2
+    echo "  docker compose start $container" >&2
+  fi
+  exit $rc
+fi
+
+echo "Importado."
+[ -f "$backup" ] && echo "backup de antes: $backup"
+echo
+echo "Confira em https://brittico.xyz/thumbs/ e, quando estiver certo, limpe:"
+echo "  rm -rf $target"
+[ -f "$backup" ] && echo "  rm -f $backup"
+
+# ---8<--- END

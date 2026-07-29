@@ -15,6 +15,7 @@ service lives in its own repository.
 stacks/<name>/compose.yaml    one stack per service
 stacks/<name>/.env.example    every variable the stack needs, documented
 scripts/deploy                roll a stack to a new version, over SSH
+scripts/import-thumbs         one-time: the thumbnail library onto the bot's volume
 docs/decisoes/                architecture decision records
 docs/runbooks/                step-by-step for the things done rarely
 ```
@@ -63,6 +64,7 @@ Procedures that are run rarely enough to be forgotten between runs.
 - [Operating the stacks from a shell](docs/runbooks/operating-the-stacks.md) — restart, update, change config, roll back
 - [Publishing brittico.xyz](docs/runbooks/publishing-brittico-xyz.md) — the site's own domain, from the image to the tunnel route
 - [Migrating to the split stacks](docs/runbooks/migrating-to-the-split-stacks.md) — the one-time move, done 2026-07-28
+- [Importing the thumbnail library](docs/runbooks/importing-the-thumbnail-library.md) — the editor's images off shared hosting, onto the bot's volume
 
 ## Status
 

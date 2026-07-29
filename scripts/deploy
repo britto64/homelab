@@ -29,19 +29,52 @@ usage() {
 
 case "${1:-}" in -h|--help) usage 0 ;; esac
 
-# The remote half needs root: /mnt/StorageHD1/stacks cannot be entered without
-# it, so even the read-only listing fails as truenas_admin.
-#
-# That is why this is two connections instead of one pipe into `bash -s`. sudo
-# has to be able to prompt for a password, which needs a TTY — and with the
-# script arriving on stdin there is no free channel for the prompt to use. So:
-# upload first, then run it with -t.
 remote_script() { sed -n '/^# ---8<--- REMOTE/,/^# ---8<--- END/p' "$0"; }
-
-remote_script | ssh "$NAS" "cat > $REMOTE_PATH"
-
 args="$(printf '%q ' "${1:-}" "${2:-}")"
-ssh -t "$NAS" "sudo bash $REMOTE_PATH $args; rc=\$?; rm -f $REMOTE_PATH; exit \$rc"
+
+# The remote half needs root: /mnt/StorageHD1/stacks cannot be entered as
+# truenas_admin, so even the read-only listing fails without it.
+#
+# Log in as root and there is no sudo, no password, and therefore no terminal
+# needed — one connection, script on stdin, works from anywhere including a
+# cron job. That path is not available by default: root has no authorized key
+# on this NAS. Install one and `NAS_HOST=root@192.168.0.82` takes it.
+case "${NAS_SUDO:-auto}" in
+  0)    SUDO="" ;;
+  auto) case "$NAS" in root@*) SUDO="" ;; *) SUDO="sudo" ;; esac ;;
+  *)    SUDO="sudo" ;;
+esac
+
+if [ -z "$SUDO" ]; then
+  remote_script | ssh "$NAS" bash -s -- "${1:-}" "${2:-}"
+  exit $?
+fi
+
+# sudo asks for a password, and a password needs a TTY to be typed into. Fail
+# here with a reason rather than letting sudo emit "a terminal is required" —
+# which arrives on stderr, often swallowed, and reads like the script did
+# nothing at all.
+if [ ! -t 0 ] || [ ! -t 1 ]; then
+  cat >&2 <<MSG
+scripts/deploy needs a real terminal.
+
+Logging in as $NAS means sudo on the NAS, and sudo asks for a password that
+has to be typed somewhere. There is no terminal here — you are piping it,
+running it from a tool, or from a job.
+
+Open a terminal and run it there. To make it work without one, give root an
+authorized key on the NAS and use:
+
+    NAS_HOST=root@192.168.0.82 scripts/deploy ${1:-}${2:+ $2}
+MSG
+  exit 1
+fi
+
+# Two connections, deliberately: sudo needs the terminal free to prompt, and
+# with the script arriving on stdin there would be no free channel for it. So
+# upload first, then run it with -t.
+remote_script | ssh "$NAS" "cat > $REMOTE_PATH"
+ssh -t "$NAS" "$SUDO bash $REMOTE_PATH $args; rc=\$?; rm -f $REMOTE_PATH; exit \$rc"
 exit $?
 
 # ---8<--- REMOTE

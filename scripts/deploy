@@ -15,11 +15,12 @@
 # So the order here is deliberate: verify the tag exists on the registry FIRST,
 # and only then touch anything.
 #
-# Host comes from ~/.ssh/config; override with NAS_HOST=... if the alias differs.
+# Default host works with no ~/.ssh/config; override with NAS_HOST=user@host.
 
 set -euo pipefail
 
-NAS="${NAS_HOST:-NAS}"
+NAS="${NAS_HOST:-truenas_admin@192.168.0.82}"
+REMOTE_PATH=/tmp/.homelab-deploy.sh
 
 usage() {
   sed -n '3,7p' "$0" | sed 's/^# \{0,1\}//'
@@ -28,10 +29,22 @@ usage() {
 
 case "${1:-}" in -h|--help) usage 0 ;; esac
 
-# Everything below runs on the NAS. Sent over stdin rather than kept in a file
-# there, so this script is the only copy and `git pull` on the NAS is not a
-# prerequisite for deploying.
-ssh -T "$NAS" bash -s -- "${1:-}" "${2:-}" <<'REMOTE'
+# The remote half needs root: /mnt/StorageHD1/stacks cannot be entered without
+# it, so even the read-only listing fails as truenas_admin.
+#
+# That is why this is two connections instead of one pipe into `bash -s`. sudo
+# has to be able to prompt for a password, which needs a TTY — and with the
+# script arriving on stdin there is no free channel for the prompt to use. So:
+# upload first, then run it with -t.
+remote_script() { sed -n '/^# ---8<--- REMOTE/,/^# ---8<--- END/p' "$0"; }
+
+remote_script | ssh "$NAS" "cat > $REMOTE_PATH"
+
+args="$(printf '%q ' "${1:-}" "${2:-}")"
+ssh -t "$NAS" "sudo bash $REMOTE_PATH $args; rc=\$?; rm -f $REMOTE_PATH; exit \$rc"
+exit $?
+
+# ---8<--- REMOTE
 set -euo pipefail
 
 STACKS=/mnt/StorageHD1/stacks
@@ -148,4 +161,5 @@ case "$status" in
     exit 1
     ;;
 esac
-REMOTE
+
+# ---8<--- END

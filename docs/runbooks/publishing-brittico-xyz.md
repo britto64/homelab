@@ -68,14 +68,17 @@ ls -l /mnt/StorageHD1/stacks/brittico-site/   # compose.yaml  .env.example
 
 ## 2. The `.env`
 
-From your machine, in the homelab clone:
+From your machine, in the homelab clone. Note the two hops: `/mnt/StorageHD1`
+cannot be written — or even entered — as `truenas_admin`, so the file lands in
+the home directory first and root moves it into place.
 
 ```sh
-scp local/brittico-site.env NAS:/mnt/StorageHD1/homelab/stacks/brittico-site/.env
+scp local/brittico-site.env truenas_admin@192.168.0.82:~/
 ```
 
 ```sh
-# on the NAS
+# on the NAS, as root
+mv ~truenas_admin/brittico-site.env /mnt/StorageHD1/homelab/stacks/brittico-site/.env
 chmod 600 /mnt/StorageHD1/homelab/stacks/brittico-site/.env
 ```
 

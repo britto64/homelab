@@ -14,8 +14,16 @@ service lives in its own repository.
 ```
 stacks/<name>/compose.yaml    one stack per service
 stacks/<name>/.env.example    every variable the stack needs, documented
+scripts/deploy                roll a stack to a new version, over SSH
 docs/decisoes/                architecture decision records
 docs/runbooks/                step-by-step for the things done rarely
+```
+
+Routine deploys do not need a shell on the NAS:
+
+```sh
+scripts/deploy                        # what is running, everywhere
+scripts/deploy brittico-site 1.2.0    # bump and roll out
 ```
 
 Every stack follows the same three rules:

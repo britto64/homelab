@@ -110,24 +110,36 @@ The image tag is pinned in `.env`, never `latest`, so an update is deliberate.
 `package.json`, commit, push to `main`. GitHub Actions publishes
 `<version>`, `sha-<commit>` and `latest`. Wait for it to go green.
 
-**2. Point the stack at it.**
+**2. Point the stack at it.** From your machine, no shell on the NAS needed:
+
+```sh
+scripts/deploy britticobot 1.4.0
+```
+
+It checks the tag is actually on the registry before editing anything, backs up
+the `.env`, pulls, brings the stack up, and waits for the healthcheck instead of
+reporting success the moment the container starts. `scripts/deploy` with no
+arguments lists every stack and the version it is on.
+
+If it comes up unhealthy it prints the last 30 log lines and the command to go
+back — the previous `.env` is at `.env.bak`.
+
+### The same thing by hand
+
+Worth knowing, for when the script is the thing that is broken:
 
 ```sh
 cd /mnt/StorageHD1/stacks/britticobot
-nano .env                     # BOT_VERSION=1.3.0
+nano .env                     # BOT_VERSION=1.4.0
 docker compose pull
 docker compose up -d
 docker ps --format "{{.Names}}\t{{.Status}}" | grep britt
-```
-
-**3. Watch it come up.**
-
-```sh
 docker logs britticobot --tail 50
 ```
 
-Variable names by stack: `BOT_VERSION`, `BACKEND_VERSION`,
-`CLOUDFLARED_VERSION`.
+Variable names by stack: `BOT_VERSION`, `BACKEND_VERSION`, `SITE_VERSION`,
+`CLOUDFLARED_VERSION`. The script finds them by pattern rather than by a list,
+so a new stack needs no change there.
 
 ### Rolling back
 

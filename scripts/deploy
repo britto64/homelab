@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+#
+# Deploy a stack to a new image version, from here, over SSH.
+#
+#   scripts/deploy brittico-site 1.2.0    bump and roll out
+#   scripts/deploy brittico-site          just print what is running
+#   scripts/deploy                        list every stack and its version
+#
+# The four stacks all update the same way: edit one `*_VERSION` in the stack's
+# .env, pull, up. That is short enough to do by hand and just long enough to get
+# wrong at the wrong moment — usually by pulling a tag the Action has not
+# published yet, which leaves the .env already edited and the stack refusing to
+# start.
+#
+# So the order here is deliberate: verify the tag exists on the registry FIRST,
+# and only then touch anything.
+#
+# Host comes from ~/.ssh/config; override with NAS_HOST=... if the alias differs.
+
+set -euo pipefail
+
+NAS="${NAS_HOST:-NAS}"
+
+usage() {
+  sed -n '3,7p' "$0" | sed 's/^# \{0,1\}//'
+  exit "${1:-0}"
+}
+
+case "${1:-}" in -h|--help) usage 0 ;; esac
+
+# Everything below runs on the NAS. Sent over stdin rather than kept in a file
+# there, so this script is the only copy and `git pull` on the NAS is not a
+# prerequisite for deploying.
+ssh -T "$NAS" bash -s -- "${1:-}" "${2:-}" <<'REMOTE'
+set -euo pipefail
+
+STACKS=/mnt/StorageHD1/stacks
+stack="${1:-}"
+version="${2:-}"
+
+# The variable is not hardcoded per stack: each .env holds exactly one
+# `*_VERSION` (SITE_VERSION, BOT_VERSION, BACKEND_VERSION, CLOUDFLARED_VERSION),
+# so reading it is more honest than a lookup table that can drift.
+version_var() { grep -oE '^[A-Z_]+VERSION=' "$1/.env" 2>/dev/null | head -1 | tr -d '='; }
+
+# --- no arguments: show what is running everywhere ---------------------------
+if [ -z "$stack" ]; then
+  printf '%-22s %-18s %s\n' STACK VERSION STATUS
+  for dir in "$STACKS"/*/; do
+    name="$(basename "$dir")"
+    var="$(version_var "$dir")" || true
+    if [ -z "${var:-}" ]; then
+      printf '%-22s %-18s %s\n' "$name" "-" "not managed here"
+      continue
+    fi
+    cur="$(grep "^$var=" "$dir/.env" | cut -d= -f2-)"
+    st="$(docker ps --filter "label=com.docker.compose.project=$name" \
+          --format '{{.Status}}' | head -1)"
+    printf '%-22s %-18s %s\n' "$name" "$var=$cur" "${st:-down}"
+  done
+  exit 0
+fi
+
+dir="$STACKS/$stack"
+[ -d "$dir" ] || { echo "no such stack: $dir" >&2; exit 1; }
+cd "$dir"
+[ -f .env ] || { echo "no .env in $dir — nothing to bump" >&2; exit 1; }
+
+var="$(version_var "$dir")"
+[ -n "$var" ] || { echo "no *_VERSION variable in $dir/.env" >&2; exit 1; }
+current="$(grep "^$var=" .env | cut -d= -f2-)"
+
+# --- one argument: report and stop -------------------------------------------
+if [ -z "$version" ]; then
+  echo "$stack: $var=$current"
+  docker compose ps
+  exit 0
+fi
+
+if [ "$version" = "$current" ]; then
+  echo "$stack is already on $version — nothing to do."
+  exit 0
+fi
+
+# --- verify the tag exists BEFORE editing anything ---------------------------
+# Compose reads shell environment ahead of the .env file, so this resolves the
+# image the new version *would* use without writing the change first.
+image="$(env "$var=$version" docker compose config --images 2>/dev/null | head -1)"
+if [ -z "$image" ]; then
+  # Older compose has no --images. Reading the resolved config is slower but
+  # works everywhere, and this runs before anything has been modified.
+  image="$(env "$var=$version" docker compose config \
+           | awk '$1=="image:"{print $2; exit}')"
+fi
+[ -n "$image" ] || { echo "could not work out the image for $stack" >&2; exit 1; }
+echo "checking $image ..."
+if ! docker manifest inspect "$image" >/dev/null 2>&1; then
+  echo >&2
+  echo "not on the registry: $image" >&2
+  echo "the build probably has not finished, or the tag is a typo." >&2
+  echo "nothing was changed." >&2
+  exit 1
+fi
+
+# --- roll it out --------------------------------------------------------------
+echo "$stack: $current -> $version"
+cp .env .env.bak                      # what a rollback restores
+sed -i "s|^$var=.*|$var=$version|" .env
+
+if ! docker compose config >/dev/null; then
+  echo "compose no longer resolves — restoring .env" >&2
+  mv .env.bak .env
+  exit 1
+fi
+
+docker compose pull
+docker compose up -d
+
+# --- wait for the healthcheck to settle ---------------------------------------
+# `up -d` returns as soon as the container is started, which is well before it
+# is serving. Without this wait the script would report success on a container
+# that is about to crash-loop.
+cid="$(docker compose ps -q | head -1)"
+status=none
+for _ in $(seq 1 30); do
+  status="$(docker inspect -f \
+    '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$cid" 2>/dev/null || echo gone)"
+  case "$status" in healthy|none|gone) break ;; esac
+  sleep 2
+done
+
+echo
+case "$status" in
+  healthy)
+    echo "$stack is healthy on $version."
+    ;;
+  none)
+    echo "$stack is up on $version. No healthcheck defined, so that is all this can say."
+    ;;
+  *)
+    echo "$stack came up $status on $version." >&2
+    echo >&2
+    docker compose logs --tail 30 >&2
+    echo >&2
+    echo "to go back, on the NAS:" >&2
+    echo "  cd $dir && mv .env.bak .env && docker compose up -d" >&2
+    echo "or from your machine: scripts/deploy $stack $current" >&2
+    exit 1
+    ;;
+esac
+REMOTE

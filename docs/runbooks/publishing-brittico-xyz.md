@@ -135,20 +135,115 @@ files did not land where nginx expects them.
 
 ## 4. Cloudflare: the zone
 
-`brittico.xyz` has to be a zone on the same Cloudflare account as
-`brittinho.com` before the tunnel can route to it.
+The domain is registered and nothing else. This section takes it from there to a
+zone the tunnel can route to.
 
-1. *dash.cloudflare.com → Add a domain → `brittico.xyz`*, Free plan.
-2. Cloudflare gives you two nameservers. Set them at the registrar where you
-   bought the domain, replacing what is there.
-3. Wait for the zone to read **Active**. Usually minutes, occasionally hours.
+Dashboard labels move around between redesigns. What each step is *for* does
+not, so go by that when a button has been renamed.
 
-Nothing below works until it is Active — the tunnel cannot create a DNS record
-in a zone Cloudflare does not yet control.
+### 4.1 Sign in to the right account
 
-There is no certificate to buy or configure. Universal SSL covers `brittico.xyz`
-and one level of subdomain, which is enough for the `api.brittico.xyz` that
-phase 2 will need.
+**The same Cloudflare account that holds `brittinho.com`.** Not a new one.
+
+A tunnel can only publish hostnames from zones in its own account, and
+`brittico-tunel` lives in that one. Adding `brittico.xyz` to a second account
+gives you a perfectly working zone that the tunnel cannot see, and the failure
+arrives later as a hostname that refuses to save — at which point the fix is to
+delete the zone and start over.
+
+If `brittinho.com` is listed on the account overview after signing in, you are
+in the right place.
+
+### 4.2 Add the domain
+
+*Account Home → **Add a domain*** (older wording: "Add site").
+
+Enter `brittico.xyz` — the bare domain, no `www`, no `https://`.
+
+Cloudflare may offer to scan for existing DNS records or to start empty. Either
+is fine here: the domain is new, so there is nothing worth importing.
+
+### 4.3 Choose the Free plan
+
+The plan list leads with the paid tiers. Scroll — **Free** is at the bottom.
+
+Everything this site needs is on it: unmetered proxied bandwidth, Universal SSL,
+and unlimited tunnel hostnames. Nothing in this runbook asks for a paid feature.
+
+### 4.4 Clean out the registrar's records
+
+Cloudflare shows the records it found. Registrars usually park a new domain on
+their own "this domain is registered" page, which leaves behind:
+
+- an `A` record for `@` pointing at the registrar's parking IP
+- sometimes a `CNAME` for `www` pointing at the same place
+- sometimes `MX` records for a mail service you did not order
+
+**Delete all of them.** The tunnel creates the record it needs in step 5, and a
+leftover `A` record on `@` competes with it — the symptom is the parking page
+still loading hours after everything else is correct.
+
+Keep `MX` records only if you actually receive mail at `@brittico.xyz`. You do
+not.
+
+Ending with an empty record list is the correct outcome, not a mistake.
+
+### 4.5 Point the nameservers at Cloudflare
+
+Cloudflare gives you two, in the shape `<word>.ns.cloudflare.com`. They are
+specific to your account — do not copy them from another guide.
+
+Now go to **the registrar where you bought `brittico.xyz`**, find the
+nameserver setting, and replace what is there with those two.
+
+| Registrar | Where it lives |
+| --- | --- |
+| Hostinger | *Domains → brittico.xyz → DNS / Nameservers → Change nameservers → Use custom* |
+| Namecheap | *Domain List → Manage → Nameservers → Custom DNS* |
+| GoDaddy | *My Products → DNS → Nameservers → Change → I'll use my own* |
+| Registro.br | *Painel → o domínio → Alterar servidores DNS* |
+
+Two rules, whichever it is: **replace, do not append** — the registrar's own
+nameservers must go — and pick the "custom" option rather than editing
+individual DNS records, which is a different screen that does nothing here.
+
+> Changing nameservers moves *all* DNS for the domain to Cloudflare. For a
+> domain that serves nothing yet, that costs nothing. It is why this is done
+> before there is anything to break.
+
+### 4.6 Wait for Active
+
+Back on Cloudflare, **Check nameservers now**. The zone reads *Pending* until
+the change propagates — usually minutes, occasionally up to 24 hours, and
+entirely out of your hands either way. Cloudflare emails you when it flips to
+**Active**.
+
+Check from a shell rather than reloading the dashboard:
+
+```sh
+dig +short NS brittico.xyz
+# expect the two *.ns.cloudflare.com names, not the registrar's
+```
+
+**Nothing after this works until the zone is Active.** The tunnel creates a DNS
+record when you add the hostname, and it cannot write into a zone Cloudflare
+does not yet control — it fails with a permissions error that reads like your
+account is at fault.
+
+### 4.7 Settings worth setting once
+
+With the zone Active, in *SSL/TLS*:
+
+- **Encryption mode: Full (strict).** This is the one that matters. The default
+  on a new zone is often *Flexible*, which makes Cloudflare talk to the origin
+  over plain HTTP — with a tunnel that is both unnecessary and a downgrade. The
+  tunnel is an authenticated outbound connection, so strict costs nothing.
+- **Always Use HTTPS: on.** Sends anyone typing `brittico.xyz` to the `https://`
+  version instead of serving them a redirect chain.
+
+There is no certificate to buy, request or install. Universal SSL is issued
+automatically and covers `brittico.xyz` plus one level of subdomain — which is
+exactly what the `api.brittico.xyz` in phase 2 will need.
 
 ---
 
@@ -172,8 +267,13 @@ The URL is the container name, not an IP: cloudflared resolves it over the
 `edge` network. HTTP and not HTTPS — TLS terminates at Cloudflare's edge, and
 the hop from the tunnel to this container is inside Docker.
 
-Saving it creates the proxied DNS record for you. Do not add one by hand as
-well.
+Saving it creates the proxied DNS record for you — a `CNAME` on `@` pointing at
+`<tunnel-id>.cfargotunnel.com`, orange-clouded. **Do not add one by hand as
+well**, and if step 4.4 left a parking `A` record behind, this is where it
+starts fighting you.
+
+An apex on a CNAME is normally illegal in DNS; Cloudflare flattens it at the
+edge, which is why this works on the bare domain without a paid plan.
 
 > **Rule order.** Rules match top to bottom and the catch-all must stay last.
 > This is a new hostname rather than a new path on an existing one, so it does

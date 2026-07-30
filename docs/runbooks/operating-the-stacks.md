@@ -251,6 +251,42 @@ Which path reaches which container is configured at
 any file on the NAS. The tunnel is token-based, so its rules are held by
 Cloudflare. Rules match in list order and the catch-all must stay last.
 
+### Feed images are recompressed overnight
+
+Anything the bot saves from chat is resized to 1200px on its longest edge and
+re-encoded before it is written, so the heavy original never reaches the disk.
+Everything that arrived *before* that existed is handled by a job that runs
+**between 00:00 and 05:00**, container local time.
+
+It is deliberately bounded. Re-encoding occupies a core per image, and the same
+container serves the chat, the site's API and the OBS overlay — so it takes the
+hours when nobody is watching and stops when the window closes, continuing the
+next night. Progress is per file, so stopping halfway wastes nothing.
+
+```sh
+# what it did last night
+docker logs britticobot 2>&1 | grep ImageOptim | tail -20
+
+# how much is still queued, and how much has been saved
+docker exec britticobot node -e "
+const {openDatabase,resolveDbPath}=require('/app/dist/db/connection.js');
+openDatabase(resolveDbPath()).then(async db=>{
+  console.table(await db.all(\"SELECT status, COUNT(*) files, \
+    SUM(bytes_before)/1048576 AS mb_before, SUM(bytes_after)/1048576 AS mb_after \
+    FROM feed_image_optim GROUP BY status\"));
+  await db.close();
+});"
+```
+
+`status` values: `done` rewritten, `kept` already optimal, `ingest` arrived
+compressed, `missing` file already pruned, `failed` undecodable and left alone.
+
+Nothing is ever replaced by something larger. Animated images stay animated, and
+an animated GIF whose re-encode cannot beat the original is left as it is —
+above the size cap on purpose, because degrading the animation to hit a number is
+the wrong trade. The first night after deploying has the whole backlog to get
+through and will almost certainly use the full five hours.
+
 ### Backups and WAL
 
 The databases run in WAL mode, so `-wal` and `-shm` files sit beside each `.db`.

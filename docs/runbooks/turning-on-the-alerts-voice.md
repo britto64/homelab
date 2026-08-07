@@ -50,7 +50,19 @@ cd <the homelab clone on the NAS>
 git pull
 ```
 
-## 2. Add the three variables to the stack's `.env`
+## 2. Make the directory for the models
+
+A plain directory beside the bot's `db`, inside the dataset that already
+exists — **not a new ZFS dataset**. Docker would create it on its own at first
+`up`, but creating it here keeps it on the intended pool and visible before
+anything depends on it, the same as the backend's data directory in the
+split-stacks migration.
+
+```sh
+sudo mkdir -p /mnt/StorageHD1/configs/brittico_bot/vozes
+```
+
+## 3. Add the three variables to the stack's `.env`
 
 ```sh
 cd /mnt/StorageHD1/stacks/britticobot
@@ -71,7 +83,7 @@ voice would silently stay on an old image every time the bot rolled.
 `TTS_URL` is **not** here either: it is in the compose body, because it is an
 address between two containers in this stack and not a secret.
 
-## 3. Download the voices before deploying
+## 4. Download the voices before deploying
 
 Do this as its own step rather than letting the deploy do it. The first boot
 downloads ~250 MB before the server binds its port, and `scripts/deploy` waits
@@ -87,7 +99,7 @@ sudo docker compose logs -f piper
 Wait for `[piper] servindo em :5000`. Later boots take a few seconds — the models
 are on the volume, and the entrypoint skips what it already has.
 
-## 4. Roll the stack
+## 5. Roll the stack
 
 From your machine, once both images are on the registry:
 

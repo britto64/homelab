@@ -33,6 +33,7 @@ bot, and the two roll out together.
       and have no `/api/overlays/.../tts` route.
 - [ ] Both images published. The workflow pushes `britticobot` and
       `britticobot-piper` under the same tag, in the same run.
+- [ ] `brittico-site` on **1.37.0 or newer** — the pages that ask for the voice.
 - [ ] ~300 MB free on the pool for the voice models.
 - [ ] A real terminal, for the `sudo` on the NAS.
 
@@ -46,9 +47,14 @@ first — the usual discipline from ADR 002.
 
 ```sh
 ssh truenas_admin@192.168.0.82
-cd <the homelab clone on the NAS>
+sudo -i
+cd /mnt/StorageHD1/homelab
 git pull
 ```
+
+`sudo -i` first: `/mnt/StorageHD1/stacks` cannot be entered without it, so
+everything below assumes root. If git refuses on dubious ownership, use
+`git -c safe.directory=/mnt/StorageHD1/homelab pull`.
 
 ## 2. Make the directory for the models
 
@@ -59,14 +65,14 @@ anything depends on it, the same as the backend's data directory in the
 split-stacks migration.
 
 ```sh
-sudo mkdir -p /mnt/StorageHD1/configs/brittico_bot/vozes
+mkdir -p /mnt/StorageHD1/configs/brittico_bot/vozes
 ```
 
 ## 3. Add the three variables to the stack's `.env`
 
 ```sh
 cd /mnt/StorageHD1/stacks/britticobot
-sudo tee -a .env >/dev/null <<'EOF'
+cat >> .env <<'EOF'
 
 PIPER_DATA_HOST_PATH=/mnt/StorageHD1/configs/brittico_bot/vozes
 PIPER_VOICES=pt_BR-faber-medium,pt_BR-cadu-medium,pt_BR-jeff-medium,pt_BR-edresson-low
@@ -121,6 +127,47 @@ scripts/deploy britticobot 1.22.0
 It verifies the tag on the registry before touching the .env, and keeps the old
 one as `.env.bak` for a rollback.
 
+## 6. Roll the site too — it is half the change
+
+The overlay page and the editor are in `brittico-site`, a different stack with
+its own version. The bot alone gets you a synthesizer nothing calls.
+
+```sh
+scripts/deploy brittico-site 1.37.0
+```
+
+No `.env` work here: the site stack has exactly one variable, and it is the
+version.
+
+**Bot first, site second.** The other order gives new pages calling routes an
+old bot does not serve — an empty voice picker and silent alerts, which looks
+exactly like a broken install rather than a half-finished one.
+
+## 7. Clear the Cloudflare cache for `overlay-core.js`
+
+Do not skip this, or the fix will not appear for up to four hours.
+
+`overlay-core.js` deliberately carries no `?v=`, because nginx sends it
+`no-cache` — and Cloudflare's Browser Cache TTL, at its 4 h default, *raises*
+any smaller value. Measured in production on 2026-08-05: the file goes out with
+`max-age=14400` no matter what nginx says. This has already cost one incident,
+where an OBS source held new HTML (which revalidates) against a stale
+`overlay-core.js` and rendered a saved widget as nothing at all.
+
+Here the stale copy is silent rather than blank: the old file still routes the
+voice through `speechSynthesis`, which is the bug being fixed.
+
+- **Cloudflare dashboard → Caching → Configuration → Purge cached content.** A
+  single-file purge of `https://brittico.xyz/assets/js/overlay-core.js` is
+  enough; purge everything if it is quicker to find.
+- **In OBS**, on each source with an overlay: *Properties → Refresh cache of the
+  current page*. The browser source has its own cache and the purge above does
+  not reach it.
+
+The real fix is a Cloudflare setting, not a step in a runbook: Browser Cache TTL
+set to *Respect Existing Headers*, or a Cache Rule covering these paths. Until
+that happens, every change to `overlay-core.js` needs this step.
+
 ---
 
 ## Checking it worked
@@ -128,7 +175,7 @@ one as `.env.bak` for a rollback.
 From the NAS, straight at the synthesizer:
 
 ```sh
-sudo docker compose exec piper python3 -c "
+docker compose exec piper python3 -c "
 import json,urllib.request
 print(list(json.load(urllib.request.urlopen('http://localhost:5000/voices'))))"
 ```
@@ -152,7 +199,7 @@ silently.
 
 ```sh
 cd /mnt/StorageHD1/stacks/britticobot
-sudo docker compose stop piper
+docker compose stop piper
 ```
 
 To turn it off without removing anything, put `TTS_ENABLED=false` in the `.env`

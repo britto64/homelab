@@ -43,7 +43,7 @@ Every stack follows the same three rules:
 | --- | --- |
 | [`art-school`](stacks/art-school/) | Self-hosted video course player, reading a course library from the NAS |
 | [`brittico-site`](stacks/brittico-site/) | The `/kennzy/` pages themselves, served from here instead of shared hosting |
-| [`britticobot`](stacks/britticobot/) | Twitch and Kick chat bot, plus the API behind the `/kennzy/` pages on brittinho.com |
+| [`britticobot`](stacks/britticobot/) | Twitch and Kick chat bot, the API behind the `/kennzy/` pages on brittinho.com, and the text-to-speech the stream alerts talk with |
 | [`brittinho-backend`](stacks/brittinho-backend/) | Server-side of brittinho.com: visit analytics, and the site's flat-file data as it moves off shared hosting |
 | [`cloudflared`](stacks/cloudflared/) | Cloudflare tunnel publishing `api.brittinho.com` without opening a port |
 
@@ -65,6 +65,7 @@ Procedures that are run rarely enough to be forgotten between runs.
 - [Publishing brittico.xyz](docs/runbooks/publishing-brittico-xyz.md) — the site's own domain, from the image to the tunnel route
 - [Migrating to the split stacks](docs/runbooks/migrating-to-the-split-stacks.md) — the one-time move, done 2026-07-28
 - [Importing the thumbnail library](docs/runbooks/importing-the-thumbnail-library.md) — the editor's images off shared hosting, onto the bot's volume
+- [Turning on the alerts' voice](docs/runbooks/turning-on-the-alerts-voice.md) — the `piper` container, and why the browser could not do it
 
 ## Status
 

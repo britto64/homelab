@@ -12,12 +12,18 @@ services:
     # firefly_iii on this host.
     networks:
       - edge
+      # The voice lives on its own network, not on `edge`. A service that
+      # declares `networks:` is on *only* those, so the bot has to name both or
+      # it cannot resolve `piper` at all.
+      - interna
     volumes:
       # Database, feed images, avatars and shop images all live under this one
       # directory. It is the only state that needs backing up.
       - ${BOT_DATA_HOST_PATH}:/app/db
     environment:
       DB_PATH: /app/db/britticobot.db
+      # The alerts' voice, in the container below.
+      TTS_URL: http://piper:5000
     # The ~35 secrets moved out of the compose body, so this file can be
     # committed while the .env stays on the NAS. See .env.example.
     env_file: .env
@@ -31,6 +37,47 @@ services:
       retries: 3
       start_period: 20s
 
+  # The alerts' text-to-speech. It is here rather than in a stack of its own
+  # because it has the bot's lifecycle exactly: nothing else calls it, it is
+  # useless without the bot, and the two roll out together (ADR 003).
+  #
+  # Same tag as the bot, and that is deliberate. `scripts/deploy` bumps exactly
+  # one `*_VERSION` per stack — it reads the first `^[A-Z_]+VERSION=` in the
+  # .env — so a `PIPER_VERSION` beside `BOT_VERSION` would be a variable the
+  # script cannot see, and the voice would quietly stay on an old image every
+  # time the bot rolled. The workflow publishes both images under the bot's
+  # version for this reason.
+  piper:
+    image: brittinho/britticobot-piper:${BOT_VERSION}
+    container_name: britticobot-piper
+    restart: unless-stopped
+    # Not on `edge`: nothing outside this stack calls it, and it answers any
+    # POST it receives with synthesized audio. The tunnel has no business
+    # resolving it.
+    networks:
+      - interna
+    volumes:
+      # The voice models, ~63 mb each, downloaded on first boot. A bind mount
+      # like every other piece of state here (ADR 001) — and it is the only
+      # copy, so wiping it means a slow first start, not a lost alert.
+      - ${PIPER_DATA_HOST_PATH}:/data
+    environment:
+      PIPER_VOICES: ${PIPER_VOICES}
+      PIPER_DEFAULT_VOICE: ${PIPER_DEFAULT_VOICE}
+    healthcheck:
+      # Python and not wget/curl: the image is python:3.12-slim and has
+      # neither. /info answers only after the default voice is loaded, which is
+      # the thing worth waiting for.
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/info')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      # Minutes, not seconds: the FIRST boot downloads every voice in
+      # PIPER_VOICES before the server binds. Later boots take a few seconds,
+      # but a short window here would mark the first one unhealthy and roll the
+      # deploy back for no reason.
+      start_period: 600s
+
 networks:
   # Shared network so the tunnel can resolve the services it fronts by name.
   # Declared external: it is created once, by hand, and outlives every stack:
@@ -39,3 +86,7 @@ networks:
   # not reach anything — which is the price of splitting the stacks apart.
   edge:
     external: true
+
+  # Bot ↔ voice, and nothing else. Created and destroyed with the stack, unlike
+  # `edge`, because it has no reason to outlive it.
+  interna:

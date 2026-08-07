@@ -91,21 +91,35 @@ only 60 seconds for a container to report healthy before calling the rollout
 failed and printing rollback instructions. Nothing would actually be broken, but
 the message says otherwise, and that is a bad thing to read mid-deploy.
 
+**Not `docker compose up -d piper`.** The .env still carries the *old*
+`BOT_VERSION` at this point — the bump is step 5 — and the voice image only
+exists from 1.22.0 onward, so compose would try to pull a tag that was never
+published. Name the tag directly instead, and skip compose entirely:
+
 ```sh
-sudo docker compose up -d piper
-sudo docker compose logs -f piper
+for v in pt_BR-faber-medium pt_BR-cadu-medium pt_BR-jeff-medium pt_BR-edresson-low; do
+  docker run --rm \
+    -v /mnt/StorageHD1/configs/brittico_bot/vozes:/data \
+    --entrypoint python3 brittinho/britticobot-piper:1.22.0 \
+    -m piper.download_voices --data-dir /data "$v"
+done
 ```
 
-Wait for `[piper] servindo em :5000`. Later boots take a few seconds — the models
-are on the volume, and the entrypoint skips what it already has.
+`Downloaded: <voice>` four times, and the volume is ready. The container that
+step 5 starts finds them there and binds in a few seconds — the entrypoint skips
+whatever it already has.
 
 ## 5. Roll the stack
 
-From your machine, once both images are on the registry:
+Back on your own machine. This is the step that bumps `BOT_VERSION`, and `up -d`
+creates the new `piper` container along with the bot:
 
 ```sh
 scripts/deploy britticobot 1.22.0
 ```
+
+It verifies the tag on the registry before touching the .env, and keeps the old
+one as `.env.bak` for a rollback.
 
 ---
 

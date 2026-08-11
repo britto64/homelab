@@ -1,0 +1,278 @@
+#!/usr/bin/env bash
+#
+# Import brittinho.com's flat-file data into brittinho-backend, over SSH.
+#
+#   scripts/import-site-data ~/Downloads/_brittinho.com        everything
+#   scripts/import-site-data ~/Downloads/_brittinho.com -n     dry run, writes nothing
+#   scripts/import-site-data ~/Downloads/_brittinho.com gallery   one slice only
+#
+# One-time migration, run once per slice as each moves off the shared host. It
+# is re-runnable by design: every importer skips what is already in the database
+# and no counter ever moves backwards, so a second, fresher download adds only
+# what is new.
+#
+# The argument is a downloaded copy of the site — either the `public_html`
+# directory itself or the folder that wraps it. What matters is `uploads/`,
+# which is where all the data actually lives.
+#
+# Slices, in the order they run when none is named:
+#   counters  api/visits.json and api/placa-counter.json
+#   comments  uploads/comments/*.json
+#   gallery   uploads/gallery/ — the 164 MB, and the slow one
+#   blog      uploads/blog/{posts,drafts,images}
+#   guestbox  uploads/guestbox/{approved,pending,meta}
+#
+# Order is deliberate, same as scripts/deploy and scripts/import-thumbs:
+# everything checkable is checked BEFORE anything is transferred or written,
+# content.db is backed up before the first write, and a dry run inside the
+# container is the last gate — it prints exactly what the real run would do.
+#
+# Default host works with no ~/.ssh/config; override with NAS_HOST=user@host.
+
+set -euo pipefail
+
+NAS="${NAS_HOST:-truenas_admin@192.168.0.82}"
+STACK=brittinho-backend
+CONTAINER=brittinho-backend
+REMOTE_SCRIPT=/tmp/.homelab-import-site.sh
+# Staging lands in /tmp first: the volume lives under /mnt/StorageHD1, which
+# truenas_admin cannot always write to, and rsync has no sudo to borrow. The
+# remote half — which does have it — copies from here into the volume, because
+# the importer runs inside the container and only /app/data is mounted there.
+REMOTE_STAGING=/tmp/site-import
+
+ALL_SLICES="counters comments gallery blog guestbox"
+
+usage() {
+  sed -n '3,29p' "$0" | sed 's/^# \{0,1\}//'
+  exit "${1:-0}"
+}
+
+case "${1:-}" in -h|--help|"") usage 0 ;; esac
+
+SOURCE="${1%/}"
+DRY=""
+SLICES="$ALL_SLICES"
+
+# Arguments after the source are either the dry-run flag or slice names, in any
+# order — naming a slice and forgetting -n is a different mistake from the
+# reverse, and both are easy to make.
+shift
+for arg in "$@"; do
+  case "$arg" in
+    -n|--dry-run) DRY="1" ;;
+    counters|comments|gallery|blog|guestbox) SLICES="$arg" ;;
+    *) echo "argumento desconhecido: $arg" >&2; usage 1 ;;
+  esac
+done
+
+# --- validate the download locally, before touching the network ---------------
+[ -e "$SOURCE" ] || { echo "não existe: $SOURCE" >&2; exit 1; }
+
+# Accept either the public_html itself or the folder wrapping it. The wrapper is
+# what a full hPanel download gives you, and unwrapping it by hand is exactly
+# the kind of step that gets skipped at 2am.
+if   [ -d "$SOURCE/public_html" ]; then SITE="$SOURCE/public_html"
+elif [ -d "$SOURCE/uploads" ];     then SITE="$SOURCE"
+else
+  cat >&2 <<MSG
+não achei o site em: $SOURCE
+
+Esperava uma pasta com public_html/ dentro, ou o próprio public_html/ (que tem
+uploads/ dentro). É o download do site, não só a pasta de imagens.
+MSG
+  exit 1
+fi
+
+[ -d "$SITE/uploads" ] || { echo "sem uploads/ em $SITE — isso não é o site." >&2; exit 1; }
+
+count_files() { find "$1" -type f 2>/dev/null | wc -l | tr -d ' '; }
+
+gallery_n="$(count_files "$SITE/uploads/gallery")"
+gb_n="$(count_files "$SITE/uploads/guestbox")"
+blog_n="$(count_files "$SITE/uploads/blog")"
+size="$(du -sh "$SITE/uploads" | cut -f1)"
+
+echo
+echo "site:  $SITE"
+echo "  galeria:   $gallery_n arquivos"
+echo "  guestbox:  $gb_n arquivos"
+echo "  blog:      $blog_n arquivos"
+echo "  uploads/:  $size no total"
+echo "  slices:    $SLICES${DRY:+   (DRY RUN)}"
+echo
+
+# The gallery manifest is not required — the importer falls back to the date in
+# the filename and then to mtime — but its absence changes the result enough to
+# be worth saying out loud rather than discovering in the dates afterwards.
+if [ "$SLICES" = "$ALL_SLICES" ] || [ "$SLICES" = "gallery" ]; then
+  if [ ! -f "$SITE/uploads/gallery/_dates.json" ]; then
+    cat >&2 <<MSG
+AVISO: uploads/gallery/_dates.json não está no download.
+
+Sem ele as datas saem do nome do arquivo, e do mtime quando o nome não diz nada.
+Para as capturas de tela dá certo; para o resto as datas vão ficar erradas — e
+os mtimes de quase metade da galeria são todos do dia de um upload em massa.
+
+Ctrl-C para buscar o manifest, ou Enter para seguir assim mesmo.
+MSG
+    read -r _
+  fi
+fi
+
+# --- the remote half needs a terminal -----------------------------------------
+case "${NAS_SUDO:-auto}" in
+  0)    SUDO="" ;;
+  auto) case "$NAS" in root@*) SUDO="" ;; *) SUDO="sudo" ;; esac ;;
+  *)    SUDO="sudo" ;;
+esac
+
+if [ -n "$SUDO" ] && { [ ! -t 0 ] || [ ! -t 1 ]; }; then
+  cat >&2 <<MSG
+scripts/import-site-data needs a real terminal.
+
+Logging in as $NAS means sudo on the NAS, and sudo asks for a password that has
+to be typed somewhere. There is no terminal here — you are piping it, running it
+from a tool, or from a job.
+
+Open a terminal and run it there. To make it work without one, give root an
+authorized key on the NAS and use:
+
+    NAS_HOST=root@192.168.0.82 scripts/import-site-data $SOURCE
+MSG
+  exit 1
+fi
+
+# --- transfer ------------------------------------------------------------------
+# Only uploads/ and the two counter files: the rest of the download is the site's
+# own HTML, CSS and games, which is ~450 MB that this import has no use for.
+echo "enviando os dados para $NAS:$REMOTE_STAGING ..."
+ssh "$NAS" "rm -rf $REMOTE_STAGING && mkdir -p $REMOTE_STAGING/api"
+
+send() {
+  # rsync when both ends have it, tar over ssh when they do not — see the same
+  # note in scripts/import-thumbs. For a one-shot copy of something that is not
+  # on the far end yet, there is nothing for rsync's delta logic to do anyway.
+  local src="$1" dest="$2"
+  if command -v rsync >/dev/null && ssh "$NAS" 'command -v rsync >/dev/null'; then
+    rsync -a --info=progress2 "$src/" "$NAS:$dest/"
+  else
+    ssh "$NAS" "mkdir -p $dest"
+    tar -C "$src" -cf - . | ssh "$NAS" "tar -C $dest -xf -"
+  fi
+}
+
+send "$SITE/uploads" "$REMOTE_STAGING/uploads"
+
+for f in visits.json placa-counter.json; do
+  [ -f "$SITE/api/$f" ] && scp -q "$SITE/api/$f" "$NAS:$REMOTE_STAGING/api/$f"
+done
+echo
+
+remote_script() { sed -n '/^# ---8<--- REMOTE/,/^# ---8<--- END/p' "$0"; }
+
+remote_script | ssh "$NAS" "cat > $REMOTE_SCRIPT"
+ssh -t "$NAS" "$SUDO bash $REMOTE_SCRIPT '$STACK' '$CONTAINER' '$REMOTE_STAGING' '$SLICES' '${DRY:-}'; rc=\$?; rm -f $REMOTE_SCRIPT; exit \$rc"
+exit $?
+
+# ---8<--- REMOTE
+set -euo pipefail
+
+STACKS=/mnt/StorageHD1/stacks
+stack="$1"
+container="$2"
+staging="$3"
+slices="$4"
+dry="${5:-}"
+
+dir="$STACKS/$stack"
+[ -f "$dir/.env" ] || { echo "sem .env em $dir" >&2; exit 1; }
+
+# The volume path is read from the stack's .env rather than hardcoded, for the
+# same reason scripts/deploy reads the version variable there: one source, and it
+# cannot drift from what compose actually mounts.
+data="$(grep '^BACKEND_DATA_HOST_PATH=' "$dir/.env" | cut -d= -f2-)"
+[ -n "$data" ] || { echo "BACKEND_DATA_HOST_PATH não está no .env de $stack" >&2; exit 1; }
+[ -d "$data" ] || { echo "o volume não existe: $data" >&2; exit 1; }
+
+docker ps --format '{{.Names}}' | grep -qx "$container" \
+  || { echo "container $container não está rodando — suba o stack primeiro." >&2; exit 1; }
+
+# The importer lives in the image. An older image predates it, and the failure
+# would otherwise be a bare "Cannot find module" after the whole transfer.
+docker exec "$container" test -f /app/dist/import.js \
+  || { echo "esta imagem não tem dist/import.js — suba uma versão mais nova antes." >&2; exit 1; }
+
+# --- space --------------------------------------------------------------------
+# The gallery is ~164 MB of originals and the import writes two WebP derivatives
+# per image on top. Running out of room mid-import leaves half a gallery and a
+# SQLite error that says nothing about disk.
+need_kb="$(du -sk "$staging" | cut -f1)"
+free_kb="$(df -Pk "$data" | awk 'NR==2 {print $4}')"
+want_kb=$(( need_kb * 3 ))
+if [ "$free_kb" -lt "$want_kb" ]; then
+  echo "espaço curto em $data: $(( free_kb / 1024 )) MB livres, ~$(( want_kb / 1024 )) MB necessários." >&2
+  echo "(o staging mais os originais mais as miniaturas)" >&2
+  exit 1
+fi
+
+# --- back up content.db before writing to it -----------------------------------
+# What a rollback restores. With WAL there are -wal and -shm files beside the
+# .db, so copying the .db alone captures a torn snapshot. `.backup` is the
+# correct way and needs no downtime.
+db="$data/content.db"
+stamp="$(date +%Y%m%d-%H%M%S)"
+backup="$data/content.db.bak-$stamp"
+
+if [ -f "$db" ]; then
+  if command -v sqlite3 >/dev/null; then
+    echo "backup: $backup"
+    sqlite3 "$db" ".backup '$backup'"
+  else
+    echo "AVISO: sqlite3 não está neste host." >&2
+    echo "Copiando .db, -wal e -shm juntos — vale menos que um .backup, mas é o que dá." >&2
+    for ext in "" "-wal" "-shm"; do
+      [ -f "$db$ext" ] && cp -p "$db$ext" "$backup$ext"
+    done
+  fi
+else
+  echo "content.db ainda não existe — a importação vai criá-lo. Sem backup a fazer."
+fi
+
+# --- stage inside the volume ---------------------------------------------------
+# The container mounts only /app/data, so the download has to be reachable from
+# inside it. Copying it under the volume is the whole trick; it is removed again
+# at the end, and on the way out even if something fails.
+inbox="$data/_import"
+cleanup() { rm -rf "$inbox"; }
+trap cleanup EXIT
+
+rm -rf "$inbox"
+mkdir -p "$inbox"
+cp -a "$staging/." "$inbox/"
+rm -rf "$staging"
+
+echo
+for slice in $slices; do
+  echo "=== $slice ==="
+  # Always dry first, even for a real run: the output is the only preview of
+  # what is about to be written, and it costs a second.
+  docker exec "$container" node /app/dist/import.js "$slice" /app/data/_import
+
+  if [ -z "$dry" ]; then
+    echo "--- commit ---"
+    docker exec "$container" node /app/dist/import.js "$slice" /app/data/_import --commit
+  fi
+  echo
+done
+
+if [ -n "$dry" ]; then
+  echo "DRY RUN — nada foi gravado. Rode de novo sem -n para valer."
+else
+  echo "pronto. backup em: ${backup:-(nenhum, banco era novo)}"
+  echo
+  echo "confira antes de mexer no site:"
+  echo "  curl -s https://api.brittinho.com/api/content/gallery?limit=1"
+  echo "  curl -s https://api.brittinho.com/api/content/comments"
+fi
+# ---8<--- END

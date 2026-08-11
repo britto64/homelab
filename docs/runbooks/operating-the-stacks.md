@@ -299,6 +299,26 @@ sqlite3 /mnt/StorageHD1/configs/brittico_bot/db/britticobot.db \
 
 `.backup` is safe while the service is running. `cp` is not.
 
+#### What actually has to survive
+
+Not all of it matters equally, and it is worth knowing which is which before a
+disk does.
+
+| Path | If it is lost |
+| --- | --- |
+| `brittinho-backend/data/content.db` | The gallery, the posts, the comments. **Not recoverable from anywhere.** |
+| `brittinho-backend/data/media/` | The image and drawing files themselves. **Not recoverable from anywhere.** |
+| `brittinho-backend/data/analytics.db` | Visit history. Painful, not fatal — it is pruned at 180 days anyway |
+| `brittinho-backend/data/gb_snaps/` | Guestbox tracking thumbnails, pruned on the same schedule |
+| `britticobot/db/britticobot.db` | The bot's state: shop, game, moderation |
+
+The top two rows arrived with the site's data migration and changed what a
+missed backup costs here. `media/` is ordinary files, so it wants a file-level
+copy or a snapshot rather than `.backup`; the databases want `.backup`.
+
+Both are still manual. If the NAS is not already snapshotting
+`${BACKEND_DATA_HOST_PATH}`, that is the gap worth closing first.
+
 ---
 
 ## When something is wrong

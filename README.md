@@ -16,6 +16,7 @@ stacks/<name>/compose.yaml    one stack per service
 stacks/<name>/.env.example    every variable the stack needs, documented
 scripts/deploy                roll a stack to a new version, over SSH
 scripts/import-thumbs         one-time: the thumbnail library onto the bot's volume
+scripts/import-site-data      one-time: brittinho.com's data onto the backend
 docs/decisoes/                architecture decision records
 docs/runbooks/                step-by-step for the things done rarely
 ```
@@ -44,7 +45,7 @@ Every stack follows the same three rules:
 | [`art-school`](stacks/art-school/) | Self-hosted video course player, reading a course library from the NAS |
 | [`brittico-site`](stacks/brittico-site/) | The `/kennzy/` pages themselves, served from here instead of shared hosting |
 | [`britticobot`](stacks/britticobot/) | Twitch and Kick chat bot, the API behind the `/kennzy/` pages on brittinho.com, and the text-to-speech the stream alerts talk with |
-| [`brittinho-backend`](stacks/brittinho-backend/) | Server-side of brittinho.com: visit analytics, and the site's flat-file data as it moves off shared hosting |
+| [`brittinho-backend`](stacks/brittinho-backend/) | Server-side of brittinho.com: visit analytics, plus the site's own content — gallery, posts, comments, guestbox — and the image files behind it |
 | [`cloudflared`](stacks/cloudflared/) | Cloudflare tunnel publishing `api.brittinho.com` without opening a port |
 
 ## Decisions
@@ -65,6 +66,7 @@ Procedures that are run rarely enough to be forgotten between runs.
 - [Publishing brittico.xyz](docs/runbooks/publishing-brittico-xyz.md) — the site's own domain, from the image to the tunnel route
 - [Migrating to the split stacks](docs/runbooks/migrating-to-the-split-stacks.md) — the one-time move, done 2026-07-28
 - [Importing the thumbnail library](docs/runbooks/importing-the-thumbnail-library.md) — the editor's images off shared hosting, onto the bot's volume
+- [Moving brittinho.com's data onto the NAS](docs/runbooks/migrating-the-site-data.md) — the gallery, posts, comments and guestbox, slice by slice
 - [Turning on the alerts' voice](docs/runbooks/turning-on-the-alerts-voice.md) — the `piper` container, and why the browser could not do it
 
 ## Status

@@ -15,7 +15,14 @@ services:
     networks:
       - edge
     volumes:
-      # analytics.db plus the guestbox snapshot JPEGs. The only state to back up.
+      # Everything this service owns: analytics.db, content.db, the guestbox
+      # snapshot JPEGs, and media/ — the gallery and blog files themselves as
+      # they move off the shared host.
+      #
+      # This is the only state to back up, and content.db plus media/ are the
+      # part that is genuinely irreplaceable. Analytics is pruned on a schedule
+      # and losing it costs history; losing media/ costs the images. See the
+      # backup section of docs/runbooks/operating-the-stacks.md.
       - ${BACKEND_DATA_HOST_PATH}:/app/data
     environment:
       DATA_DIR: /app/data

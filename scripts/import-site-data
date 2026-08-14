@@ -86,7 +86,15 @@ fi
 
 [ -d "$SITE/uploads" ] || { echo "sem uploads/ em $SITE — isso não é o site." >&2; exit 1; }
 
-count_files() { find "$1" -type f 2>/dev/null | wc -l | tr -d ' '; }
+# A pasta que não existe conta zero, e não aborta o script. Sem a primeira
+# linha, `find` sai com 1, o pipefail carrega esse 1 até o fim do cano e o set -e
+# encerra tudo aqui — o que torna impossível importar uma fatia sozinha a partir
+# de um download que só tem ela, que é justamente o modo de uso documentado lá
+# em cima.
+count_files() {
+  [ -d "$1" ] || { echo 0; return; }
+  find "$1" -type f 2>/dev/null | wc -l | tr -d ' '
+}
 
 gallery_n="$(count_files "$SITE/uploads/gallery")"
 gb_n="$(count_files "$SITE/uploads/guestbox")"

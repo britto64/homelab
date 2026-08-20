@@ -123,40 +123,76 @@ if [ -z "$version" ]; then
   exit 0
 fi
 
-if [ "$version" = "$current" ]; then
-  echo "$stack is already on $version — nothing to do."
-  exit 0
-fi
+# The .env saying $version does not mean the stack is RUNNING $version: a
+# roll-out that dies between the edit and `up` (a tag the Action had not
+# finished pushing, a pull that failed) leaves exactly that state — and the
+# obvious fix, running the same command again, used to answer "nothing to do"
+# and leave the stack on the old image with a .env that lies about it.
+#
+# So the early exit moves down, after the registry check, and only fires when
+# what is running matches what the .env asks for.
+# An `if` and not `[ ... ] && resume=1`: with `set -e`, a one-liner whose test
+# fails is a failing statement, and the script would exit right here on the
+# normal path — the version being different is the common case.
+resume=0
+if [ "$version" = "$current" ]; then resume=1; fi
 
-# --- verify the tag exists BEFORE editing anything ---------------------------
+# --- verify the tags exist BEFORE editing anything ---------------------------
 # Compose reads shell environment ahead of the .env file, so this resolves the
-# image the new version *would* use without writing the change first.
-image="$(env "$var=$version" docker compose config --images 2>/dev/null | head -1)"
-if [ -z "$image" ]; then
+# images the new version *would* use without writing the change first.
+#
+# EVERY image, and not just the first one. A stack can pin more than one to the
+# same variable — britticobot pins the bot and the voice — and the Action pushes
+# them one after another, so there is a window of a minute or two where the
+# first tag exists and the second does not. Checking only the first walked
+# straight into that window: .env edited, `pull` failed on the second image,
+# stack still on the old version and the script already gone.
+images="$(env "$var=$version" docker compose config --images 2>/dev/null)"
+if [ -z "$images" ]; then
   # Older compose has no --images. Reading the resolved config is slower but
   # works everywhere, and this runs before anything has been modified.
-  image="$(env "$var=$version" docker compose config \
-           | awk '$1=="image:"{print $2; exit}')"
+  images="$(env "$var=$version" docker compose config \
+            | awk '$1=="image:"{print $2}')"
 fi
-[ -n "$image" ] || { echo "could not work out the image for $stack" >&2; exit 1; }
-echo "checking $image ..."
-if ! docker manifest inspect "$image" >/dev/null 2>&1; then
+[ -n "$images" ] || { echo "could not work out the images for $stack" >&2; exit 1; }
+
+for image in $images; do
+  echo "checking $image ..."
+  docker manifest inspect "$image" >/dev/null 2>&1 && continue
   echo >&2
   echo "not on the registry: $image" >&2
   echo "the build probably has not finished, or the tag is a typo." >&2
   echo "nothing was changed." >&2
   exit 1
+done
+
+# --- already there? only if it is also what is running -----------------------
+if [ "$resume" = 1 ]; then
+  running="$(docker compose ps -q 2>/dev/null \
+             | xargs -r docker inspect -f '{{.Config.Image}}' 2>/dev/null | sort -u)"
+  missing=""
+  for image in $images; do
+    printf '%s\n' "$running" | grep -qxF "$image" || missing="$missing $image"
+  done
+  if [ -z "$missing" ]; then
+    echo "$stack is already on $version, and running it — nothing to do."
+    exit 0
+  fi
+  echo "$stack: .env already says $version, but that is not what is running."
+  echo "finishing the roll-out:$missing"
 fi
 
 # --- roll it out --------------------------------------------------------------
-echo "$stack: $current -> $version"
-cp .env .env.bak                      # what a rollback restores
-sed -i "s|^$var=.*|$var=$version|" .env
+if [ "$resume" = 0 ]; then
+  echo "$stack: $current -> $version"
+  cp .env .env.bak                    # what a rollback restores
+  sed -i "s|^$var=.*|$var=$version|" .env
 
-if ! docker compose config >/dev/null; then
-  echo "compose no longer resolves — restoring .env" >&2
-  mv .env.bak .env
-  exit 1
+  if ! docker compose config >/dev/null; then
+    echo "compose no longer resolves — restoring .env" >&2
+    mv .env.bak .env
+    exit 1
+  fi
 fi
 
 docker compose pull

@@ -44,7 +44,7 @@ Every stack follows the same three rules:
 | --- | --- |
 | [`art-school`](stacks/art-school/) | Self-hosted video course player, reading a course library from the NAS |
 | [`brittico-site`](stacks/brittico-site/) | The `/kennzy/` pages themselves, served from here instead of shared hosting |
-| [`britticobot`](stacks/britticobot/) | Twitch and Kick chat bot, the API behind the `/kennzy/` pages on brittinho.com, and the text-to-speech the stream alerts talk with |
+| [`britticobot`](stacks/britticobot/) | Twitch and Kick chat bot, the API behind the `/kennzy/` pages on brittinho.com, the text-to-speech the stream alerts talk with, and the live announcements posted to the Telegram/WhatsApp channels |
 | [`brittinho-backend`](stacks/brittinho-backend/) | Server-side of brittinho.com: visit analytics, plus the site's own content — gallery, posts, comments, guestbox — and the image files behind it |
 | [`cloudflared`](stacks/cloudflared/) | Cloudflare tunnel publishing `api.brittinho.com` without opening a port |
 

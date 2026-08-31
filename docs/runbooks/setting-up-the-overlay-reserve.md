@@ -173,8 +173,14 @@ npx wrangler secret put TWITCH_CLIENT_ID      # …and the rest, see its README
 npx wrangler deploy
 ```
 
-Route it at `api-backup.brittico.xyz`. Check it while everything is healthy —
-these answer from the reserve regardless of the primary:
+The hostname is declared in `wrangler.toml` as a `custom_domain` route, so
+`deploy` creates both it and the DNS record — there is no dashboard step, and a
+future deploy recreates it rather than depending on someone remembering a
+click. `overlay-core.js` looks for exactly that hostname; until it exists the
+reserve is up and the site cannot reach it, which is an invisible failure.
+
+Check it while everything is healthy — these answer from the reserve regardless
+of the primary:
 
 ```sh
 curl -s https://api-backup.brittico.xyz/api/live/viewers | head -c 200

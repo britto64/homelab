@@ -15,6 +15,21 @@ name = "api-backup"
 main = "src/index.js"
 compatibility_date = "2026-08-31"
 
+# O endereço, declarado aqui e não clicado no painel.
+#
+# `overlay-core.js` no site procura por ESTE hostname — está escrito no bloco
+# "A BASE DA API, E A RESERVA" de lá. Enquanto ele não existir, a reserva está
+# de pé e o site não sabe chegar nela, que é uma falha invisível: tudo parece
+# certo até a casa cair.
+#
+# `custom_domain = true` faz o `wrangler deploy` criar o hostname E o registro
+# DNS. Declarado no arquivo, ele é recriado por um deploy futuro em vez de
+# depender de alguém lembrar de um clique — que é a mesma razão de as stacks
+# deste repositório fixarem a tag no compose em vez de rodarem `latest`.
+routes = [
+  { pattern = "api-backup.brittico.xyz", custom_domain = true }
+]
+
 # O snapshot e a mídia. Um bucket só: a mídia sob `media/`, o resto sob
 # `snap/`. Ver scripts/sync-reserva, que é quem enche isto.
 [[r2_buckets]]

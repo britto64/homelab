@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+#
+# Enche a reserva: o snapshot que o Worker `api-backup` serve quando
+# api.brittico.xyz não responde. Roda na NAS, de hora em hora, pelo cron.
+#
+#   scripts/sync-reserva          sincroniza
+#   scripts/sync-reserva --seco   mostra o que faria, sem enviar nada
+#
+# Ver edge/api-backup/ para o outro lado disto, e
+# docs/runbooks/a-reserva-dos-overlays.md para a instalação.
+#
+# ---------------------------------------------------------------------------
+# DUAS REGRAS QUE VALEM MAIS QUE O RESTO
+# ---------------------------------------------------------------------------
+#
+# 1. UMA RESPOSTA RUIM NUNCA SUBSTITUI UMA BOA. Se a API responder 500, ou
+#    devolver algo que não é JSON, o snapshot anterior FICA. Sem isto, um bot
+#    meio quebrado envenenaria a reserva justamente na hora em que ela vai
+#    ser usada — e o defeito só apareceria na queda seguinte.
+#
+# 2. A MÍDIA USA `copy`, NUNCA `sync`. `sync` apaga no destino o que sumiu na
+#    origem, e a origem aqui é um bind mount: se ele estiver desmontado, a
+#    pasta local aparece vazia e um `sync` limparia a reserva inteira em
+#    silêncio. Os nomes são imutáveis (id novo a cada upload), então nunca há
+#    o que sobrescrever — e um arquivo órfão custa alguns megabytes num
+#    bucket de 10 GB de graça.
+#
+set -euo pipefail
+
+SECO=""
+[ "${1:-}" = "--seco" ] && SECO="--dry-run"
+
+# --- de onde -----------------------------------------------------------------
+
+# O mesmo BOT_DATA_HOST_PATH do .env da stack britticobot.
+BOT_DATA="${BOT_DATA_HOST_PATH:-/mnt/StorageHD1/configs/brittico_bot/db}"
+DB="$BOT_DATA/britticobot.db"
+MIDIA="$BOT_DATA/overlays/media"
+
+# --- para onde ---------------------------------------------------------------
+
+# O remoto do rclone e o bucket. `rclone config` cria o remoto uma vez.
+R2="${R2_REMOTE:-r2}:${R2_BUCKET:-brittico-reserva}"
+
+# Onde os JSON são montados antes de subir. Local, para que a regra 1 possa
+# comparar com o que já existe.
+STAGE="${RESERVA_STAGE:-/var/tmp/brittico-reserva}"
+
+# O container do bot, de onde as respostas são lidas. Ler pela API e não pelo
+# SQLite é deliberado: a forma da resposta É o contrato com o overlay-core.js,
+# e remontá-la aqui à mão seria mantê-la em dois lugares.
+BOT="${BOT_CONTAINER:-britticobot}"
+
+log() { printf '%s  %s\n' "$(date '+%H:%M:%S')" "$*"; }
+fim() { log "ERRO: $*"; exit 1; }
+
+command -v rclone  >/dev/null || fim "rclone não está instalado."
+command -v sqlite3 >/dev/null || fim "sqlite3 não está instalado."
+# python3 e não jq: o TrueNAS é um appliance e instalar pacote nele é coisa que
+# se perde no upgrade seguinte. O middleware dele é Python, então python3 está
+# sempre lá.
+command -v python3 >/dev/null || fim "python3 não está instalado."
+[ -f "$DB" ] || fim "não achei o banco em $DB (BOT_DATA_HOST_PATH está certo?)"
+
+mkdir -p "$STAGE"
+
+# ---------------------------------------------------------------------------
+# Uma rota da API -> um arquivo do snapshot
+# ---------------------------------------------------------------------------
+#
+# `docker exec` e não o túnel: de dentro do container a chamada não sai da
+# máquina, então este script continua funcionando com a internet caída — que é
+# quando ele mais precisa ter rodado por último com sucesso.
+pegar() {
+  local rota="$1" nome="$2" corpo alvo="$STAGE/$nome.json"
+
+  if ! corpo="$(docker exec "$BOT" wget -q -T 10 -O - "http://localhost:3000$rota" 2>/dev/null)"; then
+    log "  ! $nome: a API não respondeu — mantendo o snapshot anterior"
+    return 0
+  fi
+
+  # Regra 1, em dois filtros: o que não é JSON, e o que é JSON de erro.
+  #
+  # O segundo existe porque um 500 da API vem com `{"error": "..."}`, que é
+  # JSON perfeitamente válido — gravá-lo faria o widget desenhar um objeto de
+  # erro durante a queda, em vez do último dado bom.
+  if ! printf '%s' "$corpo" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+if isinstance(d, dict) and "error" in d: sys.exit(1)
+if d is None: sys.exit(1)
+' 2>/dev/null; then
+    log "  ! $nome: resposta inválida ou de erro — mantendo o snapshot anterior"
+    return 0
+  fi
+
+  printf '%s' "$corpo" > "$alvo"
+  log "  · $nome ($(wc -c < "$alvo") bytes)"
+}
+
+# ---------------------------------------------------------------------------
+# Os overlays
+# ---------------------------------------------------------------------------
+#
+# O SQLite entra só para ENUMERAR — o conteúdo vem da API, como todo o resto.
+# `mode=ro` numa URI: o banco está em WAL e em uso, e uma leitura assim não
+# concorre com quem está escrevendo.
+log "overlays:"
+IDS="$(sqlite3 "file:$DB?mode=ro" "SELECT public_id FROM overlays;" 2>/dev/null || true)"
+[ -n "$IDS" ] || log "  ! nenhum overlay no banco"
+
+while IFS= read -r pid; do
+  [ -n "$pid" ] || continue
+  pegar "/api/overlays/$pid"          "overlay-$pid"
+  pegar "/api/overlays/$pid/eventos?limite=100" "eventos-$pid"
+done <<< "$IDS"
+
+# ---------------------------------------------------------------------------
+# O resto do que a reserva serve
+# ---------------------------------------------------------------------------
+log "dados:"
+pegar "/api/emotes"              "emotes"
+pegar "/api/lol/matches?limit=1" "lol-matches"
+pegar "/api/lol/lp"              "lol-lp"
+
+# ---------------------------------------------------------------------------
+# Para o R2
+# ---------------------------------------------------------------------------
+#
+# Os JSON usam `sync`: aqui é seguro, porque o STAGE é montado do zero a cada
+# volta e um overlay excluído DEVE sumir da reserva — senão ele ressuscitaria
+# na tela durante a próxima queda.
+log "enviando snapshot..."
+rclone sync $SECO "$STAGE" "$R2/snap" --checksum
+
+# A mídia. `copy`, pela regra 2 lá em cima.
+#
+# Nada de credencial passa por aqui: esta pasta é só a biblioteca dos overlays
+# (imagens, vídeos, sons). O diretório perigoso da NAS é o `db/whatsapp/`, que
+# É a conta de WhatsApp de quem o tiver — ver o runbook de operação. Ele está
+# fora deste caminho, e tem que continuar fora.
+if [ -d "$MIDIA" ]; then
+  log "enviando mídia..."
+  rclone copy $SECO "$MIDIA" "$R2/media" --size-only --transfers 4
+else
+  log "! não achei a mídia em $MIDIA"
+fi
+
+log "pronto."

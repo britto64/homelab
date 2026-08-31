@@ -14,7 +14,9 @@ service lives in its own repository.
 ```
 stacks/<name>/compose.yaml    one stack per service
 stacks/<name>/.env.example    every variable the stack needs, documented
+edge/api-backup/              the Cloudflare Worker that answers when this house cannot
 scripts/deploy                roll a stack to a new version, over SSH
+scripts/sync-reserva          fill the reserve's snapshot, hourly, from the NAS
 scripts/import-thumbs         one-time: the thumbnail library onto the bot's volume
 scripts/import-site-data      one-time: brittinho.com's data onto the backend
 docs/decisoes/                architecture decision records
@@ -57,6 +59,8 @@ written so the reasoning survives after the context is forgotten.
 - [002 — Symlinks into the Dockge stacks directory](docs/decisoes/002-symlinks-into-the-dockge-stacks-directory.md)
 - [003 — One stack per lifecycle, not per project](docs/decisoes/003-one-stack-per-lifecycle.md)
 - [004 — Split services by product, not by repository size](docs/decisoes/004-splitting-services-by-product-not-by-repo-size.md)
+- [005 — The site's content lives here now](docs/decisoes/005-the-sites-content-lives-here-now.md)
+- [006 — The site leaves the house](docs/decisoes/006-the-site-leaves-the-house.md)
 
 ## Runbooks
 
@@ -68,6 +72,7 @@ Procedures that are run rarely enough to be forgotten between runs.
 - [Importing the thumbnail library](docs/runbooks/importing-the-thumbnail-library.md) — the editor's images off shared hosting, onto the bot's volume
 - [Moving brittinho.com's data onto the NAS](docs/runbooks/migrating-the-site-data.md) — the gallery, posts, comments and guestbox, slice by slice
 - [Turning on the alerts' voice](docs/runbooks/turning-on-the-alerts-voice.md) — the `piper` container, and why the browser could not do it
+- [Setting up the overlay reserve](docs/runbooks/setting-up-the-overlay-reserve.md) — Pages, R2 and the Worker, so a blackout here does not blank the stream
 
 ## Status
 

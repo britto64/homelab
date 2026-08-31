@@ -1,0 +1,40 @@
+# A reserva de api.brittico.xyz.
+#
+# Este Worker NÃO fica na frente da API de verdade. Ele responde num hostname
+# separado, e só é procurado quando o `overlay-core.js` já tomou um erro do
+# primário — ver o bloco "A BASE DA API, E A RESERVA" naquele arquivo.
+#
+# A alternativa era pô-lo na rota de `api.brittico.xyz` e fazer passthrough,
+# o que dispensaria mexer no site. Foi recusada por dois motivos: ele passaria
+# a estar no caminho crítico de TODA a API em dia normal (inclusive dos
+# uploads de vídeo de 32 mb e dos SSE de alerta), e gastaria a cota de 100 mil
+# requisições/dia com tráfego que não precisa dele. Aqui, em dia normal, ele
+# recebe zero.
+
+name = "api-backup"
+main = "src/index.js"
+compatibility_date = "2026-08-31"
+
+# O snapshot e a mídia. Um bucket só: a mídia sob `media/`, o resto sob
+# `snap/`. Ver scripts/sync-reserva, que é quem enche isto.
+[[r2_buckets]]
+binding = "RESERVA"
+bucket_name = "brittico-reserva"
+
+[vars]
+# De onde o site chama. Precisa bater com SITE_ORIGIN do bot: o navegador do
+# OBS é uma origem cruzada aqui (a página vem de brittico.xyz, isto responde
+# em api-backup.brittico.xyz), então sem CORS certo o fetch falha e a fonte
+# fica com a tela do cache — que é melhor que nada, mas não é o objetivo.
+SITE_ORIGINS = "https://brittico.xyz,https://www.brittico.xyz"
+
+# Os segredos NÃO ficam aqui — este arquivo é commitado. Todos entram por
+# `wrangler secret put <NOME>`, e a lista está no README.md ao lado:
+#   TWITCH_CLIENT_ID  TWITCH_CLIENT_SECRET  TWITCH_CHANNEL
+#   KICK_CLIENT_ID    KICK_CLIENT_SECRET    KICK_CHANNEL
+#   YOUTUBE_API_KEY   YOUTUBE_CHANNEL_ID
+#   LASTFM_API_KEY    LASTFM_USER
+#
+# São os MESMOS valores do .env do bot, e todos são credencial de APP ou chave
+# de API — nenhum é token de usuário. É por isso que esta caixa não precisa de
+# manutenção: não há nada aqui que vença sozinho num domingo.

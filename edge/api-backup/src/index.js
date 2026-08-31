@@ -227,8 +227,15 @@ function sseMudo(env, req) {
          ser em 3 s — não há nada mudando do outro lado. */
       c.enqueue(enc.encode("retry: 30000\n: reserva, sem eventos\n\n"));
     },
+    /* O MESMO `event: ping` DO BOT, e não um comentário, porque a página do
+       OBS tem um cão de guarda que reabre o cano quando ele passa 70 s sem
+       sinal de vida (ver listen() em /overlays/ver/). Um comentário é
+       descartado pelo EventSource antes de qualquer ouvinte, então uma
+       conexão SAUDÁVEL com a reserva pareceria morta dali — e a fonte
+       reconectaria a cada 70 s durante toda uma queda da casa, que é
+       exatamente a hora em que ela mais precisa ficar quieta. */
     pull(c) {
-      return new Promise(r => setTimeout(() => { c.enqueue(enc.encode(": ok\n\n")); r(); }, 25000));
+      return new Promise(r => setTimeout(() => { c.enqueue(enc.encode("event: ping\ndata: {}\n\n")); r(); }, 25000));
     }
   });
   return new Response(stream, {

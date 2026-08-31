@@ -202,6 +202,14 @@ future deploy recreates it rather than depending on someone remembering a
 click. `overlay-core.js` looks for exactly that hostname; until it exists the
 reserve is up and the site cannot reach it, which is an invisible failure.
 
+Its event streams answer with a heartbeat and nothing else — there is no bot
+to produce events — but the heartbeat is `event: ping`, not a comment, and
+that is load-bearing. The OBS page reopens the alerts stream after 70 s
+without a sign of life, because an EventSource cannot tell a quiet pipe from
+a dead one; a comment is discarded before any listener, so a healthy reserve
+connection would look dead from there and the source would reconnect every
+70 s for the whole outage — exactly when it should be sitting still.
+
 Check it while everything is healthy — these answer from the reserve regardless
 of the primary:
 
@@ -221,6 +229,17 @@ Expected: the overlay draws from `KzCache`, the console logs
 `[overlay] API agora é https://api-backup.brittico.xyz`, and the viewer count
 keeps updating with real numbers. The events ribbon shows the last synced
 state. Alerts do not fire — there is no bot.
+
+The music card must keep moving too, and for a while it did not. An
+EventSource always reconnects to the address it was born at, so a source that
+cold-started during a blip stayed on the reserve for the rest of the stream —
+and the reserve's stream is a silent heartbeat by design. The card sat on
+whichever track was playing when the source opened, and no `overlay.updated`
+arrived either, so saving in the editor changed nothing on air. Two things
+fix it and both must hold: the music widget polls (it never did — it asked
+once, at subscribe time), and a change of base now rebuilds the push
+connections. See `onApiChange` in `overlay-core.js` and
+`scripts/test-overlay-push.mjs` in the site repository.
 
 ## What this does not cover
 

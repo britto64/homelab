@@ -50,12 +50,35 @@ The site is static and stateless. Pages configuration:
 `public/_redirects` and `public/_headers` are the translation of
 `nginx/default.conf` and ship in the same commit.
 
-**`_redirects` is not `try_files`.** On Pages the rules beat real files. Verify
-on the `*.pages.dev` URL before touching DNS:
+`_redirects` has two traps, and both cost a deploy each to find.
+
+**It is not `try_files`, so nothing real may live inside a rewritten prefix.**
+On Pages the rules beat real files, so `/mediakit/case/case.js` was served as
+HTML with status 200. The fix that does not work is a specific rule rewriting
+the file to itself above the splat; the fix that does is moving the file out —
+`case.js` now lives in `/assets/js/`, where this site's single-page scripts
+live anyway.
+
+**The rewrite target is the directory, never `index.html`.** Pages
+canonicalises `/foo/index.html` to `/foo/` with a 308, so a rule pointing at
+the file points at an address that redirects, and the visitor gets a 404. This
+is the one that broke every deep link in production — `/lol/campeao/yasuo/`
+and the rest — while the `_headers` file from the same commit worked fine,
+which is what made it look like the whole file was being rejected.
+
+`/_canario` exists because of that: a plain `302` to `/` that answers "is this
+file being read at all?" without depending on any of the five rules being
+correct. Without it, a 404 on a rewrite is ambiguous between a bad rule and a
+rejected file, and each hypothesis costs a blind deploy.
+
+Verify on the `*.pages.dev` URL before touching DNS:
 
 ```sh
-# must be JavaScript, not HTML — this is the one that can break silently
-curl -sI https://<project>.pages.dev/mediakit/case/case.js | grep -i content-type
+# is the file being read at all? must be 302
+curl -so /dev/null -w '%{http_code}\n' https://<project>.pages.dev/_canario
+
+# the rewrite TARGET must be servable. 308 means point at the directory instead
+curl -so /dev/null -w '%{http_code}\n' https://<project>.pages.dev/lol/campeao/index.html
 
 # must all be HTML, status 200
 for u in /lol/campeao/yasuo/ /lol/partida/BR1_123/ /lol/item/3031/ \

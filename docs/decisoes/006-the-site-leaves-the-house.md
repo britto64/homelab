@@ -83,12 +83,22 @@ look.
 is the worst of both worlds — two configs to keep in sync for a fallback nobody
 will reach for.
 
-**`_redirects` is not `try_files`.** On Pages the rules beat real files
-("redirects are always followed, regardless of whether or not an asset matches
-the incoming request"). A new real file inside one of the five prefixes needs
-its own line above that prefix's splat, or it starts being served as HTML —
-with status 200, and nothing raising an error. There is exactly one such file
-today: `/mediakit/case/case.js`.
+**`_redirects` is not `try_files`,** and it took two production deploys to
+learn how far that goes.
+
+On Pages the rules beat real files, so nothing real may live inside a rewritten
+prefix — `case.js` was moved to `/assets/js/` rather than protected by a rule,
+because the protecting rule (rewriting the file to itself) does not work.
+
+And the rewrite target must be the directory, never `index.html`: Pages
+canonicalises `/foo/index.html` to `/foo/` with a 308, so pointing at the file
+points at an address that redirects and the visitor gets a 404. Copying the
+nginx `try_files` target literally is what broke every deep link on the live
+site.
+
+Both failures are silent in the same way — a 200 with the wrong content type,
+or a 404 on an address that exists — which is why `/_canario` now sits in the
+file as a rule whose only job is to prove the file is being read.
 
 ## What this does not solve
 

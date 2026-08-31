@@ -84,14 +84,48 @@ will reach for — see the ADR.
 
 R2 bucket `brittico-reserva`, then on the NAS:
 
+Configure the remote **as root**: the script needs `docker exec`, which on this
+NAS needs root, so the hourly job runs as root — and rclone's config is
+per-user. Configured as `truenas_admin` it lands in a home root does not read,
+and the failure arrives at 3am as `didn't find section in config file`.
+
 ```sh
+ssh -t truenas_admin@192.168.0.82 'sudo -i'
 rclone config    # remote named r2, type "s3", provider "Cloudflare"
                  # endpoint: https://<account-id>.r2.cloudflarestorage.com
+rclone config update r2 no_check_bucket true
+```
+
+**`no_check_bucket` is not optional with a scoped token.** Before uploading,
+rclone verifies the bucket exists and, failing that, tries to create it. A
+token scoped to one bucket — which is the right shape — cannot list the
+account's buckets, so the check fails and rclone falls through to
+`CreateBucket`, which is denied too. The error reads
+`CreateBucket ... AccessDenied`, which looks like a write-permission problem
+when the write was never attempted. The bucket is created by hand in the
+dashboard, once, so the check has nothing to protect.
+
+Verify with a write, not a listing — an empty bucket lists empty whether it
+works or not:
+
+```sh
+echo ok | rclone rcat r2:brittico-reserva/teste.txt
+rclone ls r2:brittico-reserva          # must print "3 teste.txt"
+rclone delete r2:brittico-reserva/teste.txt
+```
+
+Note that `rclone lsd r2:` **without** a bucket name is expected to fail: it is
+a `ListBuckets`, an account-level call the scoped token does not have.
+
+Then the first fill:
+
+```sh
 scripts/sync-reserva --seco    # dry run: shows what it would send
 scripts/sync-reserva
 ```
 
-Then hourly, as a TrueNAS **Cron Job**:
+Then hourly, as a TrueNAS **Cron Job**, running as **root** for the same reason
+as above:
 
 ```
 BOT_DATA_HOST_PATH=/mnt/StorageHD1/configs/brittico_bot/db /path/to/sync-reserva

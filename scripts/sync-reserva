@@ -42,6 +42,21 @@ MIDIA="$BOT_DATA/overlays/media"
 # O remoto do rclone e o bucket. `rclone config` cria o remoto uma vez.
 R2="${R2_REMOTE:-r2}:${R2_BUCKET:-brittico-reserva}"
 
+# --no-check-bucket, e o motivo é específico da R2.
+#
+# Antes de enviar, o rclone confere se o bucket existe — e, não achando, tenta
+# criá-lo. Um token da R2 escopado a UM bucket (que é o certo: menos
+# privilégio) não pode listar os buckets da conta, então essa conferência falha
+# e o rclone parte para o CreateBucket, que também é negado. O erro que sai é
+# `CreateBucket ... AccessDenied`, que faz parecer um problema de permissão de
+# escrita quando a escrita nunca chegou a ser tentada.
+#
+# O bucket é criado à mão uma vez, no painel, e nunca por aqui — então a
+# conferência não tem o que proteger. A mesma opção existe no remote
+# (`no_check_bucket = true`); estar nos dois lugares é de propósito: assim o
+# script não depende de quem configurou o rclone ter lembrado disso.
+RCLONE_OPTS="--no-check-bucket"
+
 # Onde os JSON são montados antes de subir. Local, para que a regra 1 possa
 # comparar com o que já existe.
 STAGE="${RESERVA_STAGE:-/var/tmp/brittico-reserva}"
@@ -131,7 +146,7 @@ pegar "/api/lol/lp"              "lol-lp"
 # volta e um overlay excluído DEVE sumir da reserva — senão ele ressuscitaria
 # na tela durante a próxima queda.
 log "enviando snapshot..."
-rclone sync $SECO "$STAGE" "$R2/snap" --checksum
+rclone sync $SECO $RCLONE_OPTS "$STAGE" "$R2/snap" --checksum
 
 # A mídia. `copy`, pela regra 2 lá em cima.
 #
@@ -141,7 +156,7 @@ rclone sync $SECO "$STAGE" "$R2/snap" --checksum
 # fora deste caminho, e tem que continuar fora.
 if [ -d "$MIDIA" ]; then
   log "enviando mídia..."
-  rclone copy $SECO "$MIDIA" "$R2/media" --size-only --transfers 4
+  rclone copy $SECO $RCLONE_OPTS "$MIDIA" "$R2/media" --size-only --transfers 4
 else
   log "! não achei a mídia em $MIDIA"
 fi

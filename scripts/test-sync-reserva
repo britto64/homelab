@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+#
+# sync-reserva, com o mundo todo falso em volta.
+#   Uso: scripts/test-sync-reserva
+#
+# Ele fala com docker, sqlite3 e rclone. Os três viram stubs no PATH, o que
+# deixa exercitar de verdade o que só se descobriria numa queda — a API muda,
+# a API devolvendo erro, o banco ilegível, um overlay excluído.
+#
+# Existe porque `bash -n` não bastou. A primeira execução do sync-reserva
+# morreu em `nome: unbound variable`, que é sintaxe válida e comportamento
+# quebrado, e o script tinha passado no `-n`. E foi rodando isto que apareceu o
+# segundo defeito, mais caro: o `rclone sync` apaga no destino o que sumiu do
+# stage, e o comentário de lá afirmava que o stage era refeito do zero a cada
+# volta. Não era — e se fosse, a primeira regra do arquivo não valeria nada.
+
+set -uo pipefail
+cd "$(dirname "$0")/.."
+ALVO="$PWD/scripts/sync-reserva"
+T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+mkdir -p "$T/bin" "$T/stage" "$T/bot/overlays/media"
+touch "$T/bot/britticobot.db" "$T/bot/overlays/media/aaa.webm"
+
+falhas=0
+t(){ if [ "$2" = "1" ]; then echo "  ok   $1"; else echo "FALHA  $1"; falhas=$((falhas+1)); fi; }
+
+bot(){ cat > "$T/bin/docker" <<EOF
+#!/usr/bin/env bash
+$1
+EOF
+chmod +x "$T/bin/docker"; }
+
+banco(){ cat > "$T/bin/sqlite3" <<EOF
+#!/usr/bin/env bash
+$1
+EOF
+chmod +x "$T/bin/sqlite3"; }
+
+printf '#!/usr/bin/env bash\nexit 0\n' > "$T/bin/rclone"; chmod +x "$T/bin/rclone"
+
+roda(){ PATH="$T/bin:$PATH" RESERVA_STAGE="$T/stage" BOT_DATA_HOST_PATH="$T/bot" bash "$ALVO" >/dev/null 2>&1; }
+tem(){ [ -e "$T/stage/$1.json" ] && echo 1 || echo 0; }
+
+echo
+echo "DIA NORMAL"
+banco 'printf "abc\ndef\n"'
+bot 'case "${@: -1}" in *"/eventos"*) echo "{\"events\":[]}";; *) echo "{\"ok\":true}";; esac'
+roda
+t "grava o documento de cada overlay"  "$(tem overlay-abc)"
+t "grava a fita de cada overlay"       "$(tem eventos-def)"
+t "grava os emotes"                    "$(tem emotes)"
+
+echo
+echo "A API CAI INTEIRA — a regra 1"
+bot 'exit 1'
+roda
+t "o documento anterior FICA"          "$(tem overlay-abc)"
+t "a fita anterior FICA"               "$(tem eventos-def)"
+t "os emotes anteriores FICAM"         "$(tem emotes)"
+
+echo
+echo "A API RESPONDE ERRO — 500 é JSON válido, e não pode virar snapshot"
+rm -f "$T/stage/emotes.json"
+bot 'echo "{\"error\":\"Erro ao ler.\"}"'
+roda
+t "um corpo de erro não vira snapshot"  "$([ "$(tem emotes)" = 0 ] && echo 1 || echo 0)"
+t "e não apaga o que já era bom"        "$(tem overlay-abc)"
+
+echo
+echo "O BANCO FALHA — lista vazia não pode podar tudo"
+banco 'exit 1'
+bot 'echo "{\"ok\":true}"'
+roda
+t "os overlays continuam na reserva"    "$(tem overlay-abc)"
+t "as fitas continuam na reserva"       "$(tem eventos-def)"
+
+echo
+echo "UM OVERLAY FOI EXCLUÍDO — aí sim tem que sair"
+banco 'printf "abc\n"'
+roda
+t "o excluído sai do documento"         "$([ "$(tem overlay-def)" = 0 ] && echo 1 || echo 0)"
+t "o excluído sai da fita"              "$([ "$(tem eventos-def)" = 0 ] && echo 1 || echo 0)"
+t "quem ficou continua"                 "$(tem overlay-abc)"
+
+echo
+[ "$falhas" = 0 ] && echo "Tudo certo." || echo "$falhas falha(s)."
+exit "$([ "$falhas" = 0 ] && echo 0 || echo 1)"

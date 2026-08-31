@@ -17,6 +17,7 @@ stacks/<name>/.env.example    every variable the stack needs, documented
 edge/api-backup/              the Cloudflare Worker that answers when this house cannot
 scripts/deploy                roll a stack to a new version, over SSH
 scripts/sync-reserva          fill the reserve's snapshot, hourly, from the NAS
+scripts/test-sync-reserva     the above, with docker/sqlite3/rclone stubbed out
 scripts/import-thumbs         one-time: the thumbnail library onto the bot's volume
 scripts/import-site-data      one-time: brittinho.com's data onto the backend
 docs/decisoes/                architecture decision records

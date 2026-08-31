@@ -57,9 +57,17 @@ R2="${R2_REMOTE:-r2}:${R2_BUCKET:-brittico-reserva}"
 # script não depende de quem configurou o rclone ter lembrado disso.
 RCLONE_OPTS="--no-check-bucket"
 
-# Onde os JSON são montados antes de subir. Local, para que a regra 1 possa
-# comparar com o que já existe.
-STAGE="${RESERVA_STAGE:-/var/tmp/brittico-reserva}"
+# Onde os JSON são montados antes de subir.
+#
+# ELE PERSISTE ENTRE AS VOLTAS, E É ISSO QUE FAZ A REGRA 1 FUNCIONAR: quando
+# uma rota falha, o arquivo da volta anterior continua aqui e sobe de novo.
+# NÃO limpe este diretório no começo do script — seria trocar a regra 1 por
+# nada, e o sintoma só apareceria na queda seguinte.
+#
+# No data pool e não em /var/tmp: no TrueNAS o boot pool é substituído numa
+# atualização de versão, e um stage vazio no momento errado (API fora) faria o
+# `rclone sync` abaixo esvaziar a reserva inteira.
+STAGE="${RESERVA_STAGE:-/mnt/StorageHD1/scripts/.reserva-stage}"
 
 # O container do bot, de onde as respostas são lidas. Ler pela API e não pelo
 # SQLite é deliberado: a forma da resposta É o contrato com o overlay-core.js,
@@ -87,7 +95,13 @@ mkdir -p "$STAGE"
 # máquina, então este script continua funcionando com a internet caída — que é
 # quando ele mais precisa ter rodado por último com sucesso.
 pegar() {
-  local rota="$1" nome="$2" corpo alvo="$STAGE/$nome.json"
+  # Dois `local` e não um. O bash expande TODOS os argumentos de um comando
+  # antes de executar qualquer atribuição dele, então um `local a="$1" b="$a"`
+  # expande `$a` enquanto ele ainda não existe — e com `set -u` isso não é um
+  # vazio, é um `unbound variable` que aborta o script. Custou a primeira
+  # execução deste arquivo.
+  local rota="$1" nome="$2"
+  local corpo alvo="$STAGE/$nome.json"
 
   if ! corpo="$(docker exec "$BOT" wget -q -T 10 -O - "http://localhost:3000$rota" 2>/dev/null)"; then
     log "  ! $nome: a API não respondeu — mantendo o snapshot anterior"
@@ -130,6 +144,29 @@ while IFS= read -r pid; do
   pegar "/api/overlays/$pid/eventos?limite=100" "eventos-$pid"
 done <<< "$IDS"
 
+# A poda. Um overlay excluído na galeria tem que sumir da reserva também —
+# senão ele ressuscita na tela durante a próxima queda, e "excluído" passa a
+# significar "excluído até a luz cair".
+#
+# Isto é explícito porque não acontece sozinho: o stage persiste de propósito
+# (ver a regra 1), então um arquivo órfão ficaria aqui para sempre e o
+# `rclone sync` o reenviaria a cada volta.
+#
+# Só poda se a leitura do banco deu certo. Com `$IDS` vazio por falha do
+# sqlite, podar seria apagar TODOS os overlays da reserva por causa de um erro
+# de leitura — exatamente o oposto do que a regra 1 protege.
+if [ -n "$IDS" ]; then
+  for f in "$STAGE"/overlay-*.json "$STAGE"/eventos-*.json; do
+    [ -e "$f" ] || continue
+    base="$(basename "$f" .json)"
+    id="${base#overlay-}"; id="${id#eventos-}"
+    if ! printf '%s\n' "$IDS" | grep -qxF "$id"; then
+      log "  - $base: não existe mais no banco, saindo da reserva"
+      rm -f "$f"
+    fi
+  done
+fi
+
 # ---------------------------------------------------------------------------
 # O resto do que a reserva serve
 # ---------------------------------------------------------------------------
@@ -142,9 +179,11 @@ pegar "/api/lol/lp"              "lol-lp"
 # Para o R2
 # ---------------------------------------------------------------------------
 #
-# Os JSON usam `sync`: aqui é seguro, porque o STAGE é montado do zero a cada
-# volta e um overlay excluído DEVE sumir da reserva — senão ele ressuscitaria
-# na tela durante a próxima queda.
+# Os JSON usam `sync` para que uma exclusão chegue ao outro lado. O que torna
+# isso seguro NÃO é o stage estar vazio — ele persiste —, é a poda acima ser a
+# única coisa que tira arquivo dele, e ela só roda com o banco lido com
+# sucesso. Uma rota que falhou mantém o arquivo da volta anterior, e o `sync`
+# o reenvia igual.
 log "enviando snapshot..."
 rclone sync $SECO $RCLONE_OPTS "$STAGE" "$R2/snap" --checksum
 

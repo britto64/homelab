@@ -124,14 +124,34 @@ scripts/sync-reserva --seco    # dry run: shows what it would send
 scripts/sync-reserva
 ```
 
-Then hourly, as a TrueNAS **Cron Job**, running as **root** for the same reason
-as above:
+Put the script on the **data pool**, not in `/root` — on TrueNAS the boot pool
+is replaced on a version upgrade:
 
 ```
-BOT_DATA_HOST_PATH=/mnt/StorageHD1/configs/brittico_bot/db /path/to/sync-reserva
+/mnt/StorageHD1/scripts/sync-reserva
 ```
 
-Two properties of that script worth knowing before changing it:
+Then hourly, as a TrueNAS **Cron Job**:
+
+| Field | Value |
+| --- | --- |
+| Command | `BOT_DATA_HOST_PATH=/mnt/StorageHD1/configs/brittico_bot/db /mnt/StorageHD1/scripts/sync-reserva` |
+| Run as user | `root` — it runs `docker exec`, and it owns the rclone config |
+| Schedule | hourly |
+| Hide Standard Output | **checked** |
+
+Check that box. Progress goes to stdout and only fatal errors go to stderr, so
+checked means silence when it works and mail when it breaks. Unchecked is an
+email an hour, and nobody reads the 700th — which is the same as not being
+told at all.
+
+Three properties of that script worth knowing before changing it:
+
+- **The stage directory persists between passes, and that is the mechanism.**
+  When a route fails, the previous pass's file is still there and is uploaded
+  again. Do not add a cleanup at the top: `rclone sync` deletes at the
+  destination what is missing from the source, so an emptied stage during an
+  outage would empty the reserve.
 
 - **A bad response never replaces a good snapshot.** A 500 from the API, or a
   body that is not JSON, leaves the previous file alone. Without it a

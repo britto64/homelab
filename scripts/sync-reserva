@@ -82,7 +82,14 @@ STAGE="${RESERVA_STAGE:-/mnt/StorageHD1/scripts/.reserva-stage}"
 BOT="${BOT_CONTAINER:-britticobot}"
 
 log() { printf '%s  %s\n' "$(date '+%H:%M:%S')" "$*"; }
-fim() { log "ERRO: $*"; exit 1; }
+
+# O que mata o script vai para stderr, e o progresso para stdout.
+#
+# Isso existe por causa do cron do TrueNAS, que tem uma caixa "Hide Standard
+# Output". Ela é o que se quer marcar — senão é um e-mail por hora dizendo que
+# tudo correu bem, e ninguém lê o 700º. Com o erro fatal em stdout junto, marcar
+# aquela caixa esconderia justamente a única coisa que se precisa ver.
+fim() { printf '%s  ERRO: %s\n' "$(date '+%H:%M:%S')" "$*" >&2; exit 1; }
 
 command -v rclone  >/dev/null || fim "rclone não está instalado."
 command -v sqlite3 >/dev/null || fim "sqlite3 não está instalado."

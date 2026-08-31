@@ -36,7 +36,31 @@ $1
 EOF
 chmod +x "$T/bin/sqlite3"; }
 
-printf '#!/usr/bin/env bash\nexit 0\n' > "$T/bin/rclone"; chmod +x "$T/bin/rclone"
+# O stub do rclone responde `help flags`, e isso não é enfeite: a versão
+# anterior dele engolia qualquer flag, e foi por isso que um `--no-check-bucket`
+# sem o prefixo `--s3-` passou daqui e só morreu na NAS, depois de o script ter
+# montado o snapshot inteiro. Um stub que aceita tudo não testa nada.
+cat > "$T/bin/rclone" <<'EOF'
+#!/usr/bin/env bash
+if [ "${1:-}" = "help" ] && [ "${2:-}" = "flags" ]; then
+  echo "      --s3-no-check-bucket   If set, don't attempt to check the bucket exists or create it"
+  exit 0
+fi
+for a in "$@"; do
+  case "$a" in
+    --*) grep -qx -- "$a" "$(dirname "$0")/flags-validas" || { echo "Error: unknown flag: $a" >&2; exit 1; } ;;
+  esac
+done
+exit 0
+EOF
+chmod +x "$T/bin/rclone"
+cat > "$T/bin/flags-validas" <<'EOF'
+--s3-no-check-bucket
+--checksum
+--size-only
+--transfers
+--dry-run
+EOF
 
 roda(){ PATH="$T/bin:$PATH" RESERVA_STAGE="$T/stage" BOT_DATA_HOST_PATH="$T/bot" bash "$ALVO" >/dev/null 2>&1; }
 tem(){ [ -e "$T/stage/$1.json" ] && echo 1 || echo 0; }
@@ -81,6 +105,13 @@ roda
 t "o excluído sai do documento"         "$([ "$(tem overlay-def)" = 0 ] && echo 1 || echo 0)"
 t "o excluído sai da fita"              "$([ "$(tem eventos-def)" = 0 ] && echo 1 || echo 0)"
 t "quem ficou continua"                 "$(tem overlay-abc)"
+
+echo
+echo "AS FLAGS QUE VÃO PARA O RCLONE"
+# O stub reprova flag que não está na lista, então qualquer coisa inventada
+# aqui derruba estes dois. Foi o que faltou da primeira vez.
+t "o sync passa por flags válidas"      "$([ "$(tem overlay-abc)" = 1 ] && echo 1 || echo 0)"
+roda; t "e a segunda volta também"      "$([ "$(tem overlay-abc)" = 1 ] && echo 1 || echo 0)"
 
 echo
 [ "$falhas" = 0 ] && echo "Tudo certo." || echo "$falhas falha(s)."

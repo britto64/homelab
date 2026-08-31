@@ -42,7 +42,7 @@ MIDIA="$BOT_DATA/overlays/media"
 # O remoto do rclone e o bucket. `rclone config` cria o remoto uma vez.
 R2="${R2_REMOTE:-r2}:${R2_BUCKET:-brittico-reserva}"
 
-# --no-check-bucket, e o motivo é específico da R2.
+# --s3-no-check-bucket, e o motivo é específico da R2.
 #
 # Antes de enviar, o rclone confere se o bucket existe — e, não achando, tenta
 # criá-lo. Um token da R2 escopado a UM bucket (que é o certo: menos
@@ -55,7 +55,14 @@ R2="${R2_REMOTE:-r2}:${R2_BUCKET:-brittico-reserva}"
 # conferência não tem o que proteger. A mesma opção existe no remote
 # (`no_check_bucket = true`); estar nos dois lugares é de propósito: assim o
 # script não depende de quem configurou o rclone ter lembrado disso.
-RCLONE_OPTS="--no-check-bucket"
+#
+# O PREFIXO `--s3-` NÃO É OPCIONAL. Opção de backend no rclone é sempre
+# prefixada pelo backend; `--no-check-bucket` sozinha não existe e o rclone
+# morre com `unknown flag` — depois de já ter montado o snapshot inteiro, que é
+# o pior momento para descobrir. Conferir com:
+#
+#   rclone help flags | grep check.bucket
+RCLONE_OPTS="--s3-no-check-bucket"
 
 # Onde os JSON são montados antes de subir.
 #
@@ -83,6 +90,16 @@ command -v sqlite3 >/dev/null || fim "sqlite3 não está instalado."
 # se perde no upgrade seguinte. O middleware dele é Python, então python3 está
 # sempre lá.
 command -v python3 >/dev/null || fim "python3 não está instalado."
+
+# A flag existe neste rclone? Perguntado AQUI, antes de qualquer trabalho.
+#
+# Descoberto do jeito difícil: com a flag errada, o rclone só reclama na hora
+# de enviar — depois de o script ter lido a API sete vezes e montado o snapshot
+# inteiro. Uma checagem que custa um `grep` no começo troca isso por uma linha
+# de erro em um segundo, e o cron não passa meia hora fazendo trabalho que vai
+# ser jogado fora.
+rclone help flags 2>/dev/null | grep -q -- "--s3-no-check-bucket" \
+  || fim "este rclone não conhece --s3-no-check-bucket (rclone help flags | grep check.bucket)"
 [ -f "$DB" ] || fim "não achei o banco em $DB (BOT_DATA_HOST_PATH está certo?)"
 
 mkdir -p "$STAGE"

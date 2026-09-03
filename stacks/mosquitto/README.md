@@ -27,6 +27,14 @@ cp .env.example .env
 docker compose up -d
 ```
 
+Mosquitto also wants the config files it reads to be owned by its user and not
+world-readable — it warns now and future versions will refuse to load the ACL
+altogether (which would leave the broker without its only fence):
+
+```sh
+chown 1883:1883 acl mosquitto.conf && chmod 600 acl
+```
+
 ## Publishing the hostname
 
 The tunnel is remotely managed, so the route lives in the Zero Trust

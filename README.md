@@ -50,6 +50,7 @@ Every stack follows the same three rules:
 | [`britticobot`](stacks/britticobot/) | Twitch and Kick chat bot, the API behind the `/kennzy/` pages on brittinho.com, the text-to-speech the stream alerts talk with, and the live announcements posted to the Telegram/WhatsApp channels |
 | [`brittinho-backend`](stacks/brittinho-backend/) | Server-side of brittinho.com: visit analytics, plus the site's own content — gallery, posts, comments, guestbox — and the image files behind it |
 | [`cloudflared`](stacks/cloudflared/) | Cloudflare tunnel publishing `api.brittinho.com` without opening a port |
+| [`mosquitto`](stacks/mosquitto/) | The MQTT broker behind diskenzy's live sync — presence, calls, WebRTC signaling |
 
 ## Decisions
 

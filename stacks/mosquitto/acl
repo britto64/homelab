@@ -1,0 +1,4 @@
+# Everything the diskenzy pages publish lives under diskenzy/. Anything else
+# — $SYS included — is denied by default once an acl_file is set.
+
+topic readwrite diskenzy/#

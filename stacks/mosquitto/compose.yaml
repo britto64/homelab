@@ -1,0 +1,45 @@
+# The MQTT broker behind diskenzy's live sync (presence, chat, WebRTC
+# signaling). It replaces the three public brokers the site used to rotate
+# through, which could not see each other: retained state is per-broker, so a
+# client that failed over to another broker stopped receiving what everyone
+# else published — the "I am alone in the call" bug. One broker of our own is
+# the source of truth; the public ones stay in the site's BROKERS list as
+# fallback for when this box is down.
+#
+# The site reaches it over WSS through the cloudflared tunnel, which
+# terminates TLS at the edge. Here the broker speaks plain WebSocket on 9001;
+# nobody publishes this port — only the tunnel resolves the container.
+
+services:
+  mqtt:
+    image: eclipse-mosquitto:${MOSQUITTO_VERSION}
+    container_name: brittico-mqtt
+    restart: unless-stopped
+    # Reached through the tunnel on the `edge` network, same as britticobot
+    # and brittinho-backend. The only published port is the LAN debug
+    # listener below.
+    networks:
+      - edge
+    ports:
+      # Debug listener for the NAS shell only (mosquitto_sub / mosquitto_pub):
+      # bound to loopback, never to the LAN interface, and the tunnel does not
+      # route to it either — it only fronts 9001.
+      - "127.0.0.1:1883:1883"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./acl:/mosquitto/config/acl:ro
+      # Retained messages (presence and call member cards) live here.
+      # Bind mount per ADR 001; must be writable by uid 1883 — see README.
+      - ./data:/mosquitto/data
+
+    # No healthcheck. The image ships neither wget nor curl nor the mosquitto
+    # client tools, so there is no honest in-container probe; a process check
+    # would report "healthy" for a broker that lost its listener. The tunnel's
+    # 502 and the site's own connection status are the real signal.
+
+networks:
+  # Shared network so the tunnel can resolve the services it fronts by name.
+  # Declared external: it is created once, by hand, and outlives every stack:
+  #   docker network create edge
+  edge:
+    external: true

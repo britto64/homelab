@@ -1,10 +1,10 @@
-# Precifica: precificação de pratos do restaurante — ficha técnica, CMV e
-# DRE unitária por prato, em uma página estilo planilha.
+# Precifica: pricing sheet for the restaurant — recipe cost, CMV and unit DRE
+# per dish, in a single spreadsheet-style page.
 #
-# O deploy não usa Docker Hub: a imagem viaja por SSH (`docker save | docker
-# load`) desde o repo do app (6.precifica, scripts/deploy.sh). A copia
-# canónica deste compose vive em 6.precifica/deploy/compose.yaml — mantenga
-# esta em sync.
+# The deploy does not use Docker Hub: the image travels over SSH (`docker save
+# | docker load`) from the app repo (6.precifica, scripts/deploy.sh). The
+# canonical copy of this compose lives in 6.precifica/deploy/compose.yaml —
+# keep this one in sync.
 
 services:
   precifica:
@@ -12,18 +12,18 @@ services:
     container_name: precifica
     restart: unless-stopped
 
-    # Acesso pela LAN de casa (celular/desktop). Porta pública 8765.
-    # Para expor por internet, siga o padrão dos outros stacks: rede `edge` +
-    # cloudflared, sem port publicado.
+    # Reached from the home LAN (phone/desktop). Public port 8765.
+    # To expose on the internet, follow the pattern of the other stacks: `edge`
+    # network + cloudflared, no published port.
     ports:
       - "8765:3000"
 
-    # SQLite fora da imagem: um rollback de versão não toca os dados.
+    # SQLite outside the image: rolling back a version does not touch the data.
     volumes:
       - ./data:/app/data
 
-    # Healthcheck em Node nativo: fetch existe em node:26-slim, sem depender
-    # de wget/curl na imagem.
+    # Native Node healthcheck: fetch exists in node:26-slim, so the image does
+    # not depend on wget/curl.
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s

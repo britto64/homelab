@@ -1,0 +1,32 @@
+# Precifica: precificação de pratos do restaurante — ficha técnica, CMV e
+# DRE unitária por prato, em uma página estilo planilha.
+#
+# O deploy não usa Docker Hub: a imagem viaja por SSH (`docker save | docker
+# load`) desde o repo do app (6.precifica, scripts/deploy.sh). A copia
+# canónica deste compose vive em 6.precifica/deploy/compose.yaml — mantenga
+# esta em sync.
+
+services:
+  precifica:
+    image: brittinho/precifica:${PRECIFICA_VERSION}
+    container_name: precifica
+    restart: unless-stopped
+
+    # Acesso pela LAN de casa (celular/desktop). Porta pública 8765.
+    # Para expor por internet, siga o padrão dos outros stacks: rede `edge` +
+    # cloudflared, sem port publicado.
+    ports:
+      - "8765:3000"
+
+    # SQLite fora da imagem: um rollback de versão não toca os dados.
+    volumes:
+      - ./data:/app/data
+
+    # Healthcheck em Node nativo: fetch existe em node:26-slim, sem depender
+    # de wget/curl na imagem.
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

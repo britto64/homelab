@@ -41,12 +41,16 @@ services:
       IRL_SRT_PASSWORD: ${IRL_SRT_PASSWORD}
       IRL_API_USER: ${IRL_API_USER}
       IRL_API_PASSWORD: ${IRL_API_PASSWORD}
+    # The image's entrypoint IS the mediamtx binary, so the render command
+    # needs an entrypoint override — without it `sh -c` would arrive as
+    # flags to mediamtx and the container would loop.
+    entrypoint: ["/bin/sh", "-c"]
     command: >
-      sh -c "sed -e 's|@@IRL_SRT_USER@@|'"$${IRL_SRT_USER}"'|g'
-                  -e 's|@@IRL_SRT_PASSWORD@@|'"$${IRL_SRT_PASSWORD}"'|g'
-                  -e 's|@@IRL_API_USER@@|'"$${IRL_API_USER}"'|g'
-                  -e 's|@@IRL_API_PASSWORD@@|'"$${IRL_API_PASSWORD}"'|g'
-                  /mediamtx.yml.template > /mediamtx.yml && exec /mediamtx /mediamtx.yml"
+      "sed -e 's|@@IRL_SRT_USER@@|'"$${IRL_SRT_USER}"'|g'
+              -e 's|@@IRL_SRT_PASSWORD@@|'"$${IRL_SRT_PASSWORD}"'|g'
+              -e 's|@@IRL_API_USER@@|'"$${IRL_API_USER}"'|g'
+              -e 's|@@IRL_API_PASSWORD@@|'"$${IRL_API_PASSWORD}"'|g'
+              /mediamtx.yml.template > /mediamtx.yml && exec /mediamtx /mediamtx.yml"
 
 networks:
   # Shared network so the bot resolves this container by name. Declared

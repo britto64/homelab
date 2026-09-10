@@ -1,0 +1,72 @@
+# MediaMTX — o ingest do sinal IRL (docs/IRL-SETUP.md).
+#
+# O celular publica SRT no path `kennzy`; o OBS lê o mesmo path; a API /v3
+# é o que o bot do Britto consulta para trocar IRL/Pausa. Tudo autenticado
+# pelo streamid do SRT e por credenciais no HLS — não há leitor anônimo.
+
+###############################################
+# General settings
+
+logLevel: info
+# O ingest do celular é o produto inteiro deste container: sem ele não há
+# motivo para nada aqui estar de pé.
+logDestinations: [stdout]
+
+###############################################
+# API (o monitor do bot lê GET /v3/paths/{name})
+
+api: yes
+apiAddress: :9997
+# Sem autenticação de propósito — a API permite publicar/derrubar paths,
+# então ela NUNCA fica exposta: no NAS só o loopback publica a porta (o bot
+# chega por dentro do docker), no VPS ela fica atrás de túnel SSH.
+
+###############################################
+# SRT (o que o celular fala)
+
+srt: yes
+srtAddress: :8890
+
+###############################################
+# HLS (checar o sinal pelo navegador)
+
+hls: yes
+hlsAddress: :8888
+hlsVariant: lowLatency
+hlsSegmentCount: 7
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
+
+###############################################
+# Autenticação
+#
+# O padrão do MediaMTX é aceitar qualquer publicador — em um endpoint público
+# isso é "qualquer um que descobrir o IP:porta entra no ar". Aqui o par
+# usuário/senha viaja DENTRO do streamid do SRT e nas credenciais do HLS,
+# e a lista abaixo substitui o catch-all do padrão.
+
+authInternalUsers:
+  # O Kennzy publica e o Britto lê; a mesma senha, dois papéis.
+  - user: ${IRL_SRT_USER}
+    pass: ${IRL_SRT_PASSWORD}
+    permissions:
+      - action: publish
+        path: kennzy
+      - action: read
+        path: kennzy
+      - action: playback
+        path: kennzy
+  # A API é outro segredo: quem a lê consulta estado (e poderia mexer nos
+  # paths), então tem usuário próprio e nunca viaja no streamid do celular.
+  - user: ${IRL_API_USER}
+    pass: ${IRL_API_PASSWORD}
+    permissions:
+      - action: api
+
+###############################################
+# Paths
+
+paths:
+  kennzy:
+    # Criado sob demanda quando o Larix conecta, destruído quando desconecta.
+    source: publisher

@@ -1,0 +1,56 @@
+# The IRL ingest: the phone sends SRT here, OBS pulls the stream as a media
+# source, and the bot watches the path API to flip IRL/Pausa scenes when the
+# signal drops (see britticobot's irl.ts and the site's docs/IRL-SETUP.md).
+#
+# Ensaio: this stack runs on the NAS with the bot, over the LAN. Production:
+# the same files land on the Contabo VPS, where the SRT port is the only one
+# exposed and the API stays behind an SSH tunnel.
+#
+# Why MediaMTX: it speaks SRT (UDP, retransmission, AES — the right protocol
+# for a cellular link), exposes an HTTP API with the path state (what the bot
+# polls) and an HLS preview (checking the signal from a browser before the
+# OBS is even open).
+
+services:
+  mediamtx:
+    image: bluenviron/mediamtx:${IRL_MEDIAMTX_VERSION}
+    container_name: brittico-mediamtx
+    restart: unless-stopped
+    ports:
+      # SRT ingest from the phone (Larix). UDP — RTMP's TCP is exactly what
+      # makes it wrong for cellular.
+      - "8890:8890/udp"
+      # HLS preview, for checking the signal from any browser (credentials
+      # in the URL — the browser asks for them once).
+      - "8888:8888"
+      # The control API the bot polls. The bot reaches it through the `edge`
+      # network by name, so this published port is only a debug listener for
+      # the NAS shell — bound to loopback.
+      - "127.0.0.1:9997:9997"
+    volumes:
+      # Rendered at start: MediaMTX does NOT interpolate ${VAR} inside its
+      # config, and authInternalUsers (a list) is not settable through the
+      # MTX_* env overrides — those cover scalar values only. So the @@…@@
+      # markers are substituted by the shell in the command below, using the
+      # env below; the committed file never holds a secret.
+      - ./mediamtx.yml.example:/mediamtx.yml.template:ro
+    networks:
+      - edge
+    environment:
+      IRL_SRT_USER: ${IRL_SRT_USER}
+      IRL_SRT_PASSWORD: ${IRL_SRT_PASSWORD}
+      IRL_API_USER: ${IRL_API_USER}
+      IRL_API_PASSWORD: ${IRL_API_PASSWORD}
+    command: >
+      sh -c "sed -e 's|@@IRL_SRT_USER@@|'"$${IRL_SRT_USER}"'|g'
+                  -e 's|@@IRL_SRT_PASSWORD@@|'"$${IRL_SRT_PASSWORD}"'|g'
+                  -e 's|@@IRL_API_USER@@|'"$${IRL_API_USER}"'|g'
+                  -e 's|@@IRL_API_PASSWORD@@|'"$${IRL_API_PASSWORD}"'|g'
+                  /mediamtx.yml.template > /mediamtx.yml && exec /mediamtx /mediamtx.yml"
+
+networks:
+  # Shared network so the bot resolves this container by name. Declared
+  # external: created once, by hand, and outlives every stack — same as
+  # britticobot.
+  edge:
+    external: true

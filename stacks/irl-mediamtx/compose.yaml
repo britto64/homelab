@@ -20,6 +20,9 @@ services:
       # SRT ingest from the phone (Larix). UDP — RTMP's TCP is exactly what
       # makes it wrong for cellular.
       - "8890:8890/udp"
+      # RTMP ingest, as a fallback for apps that do not speak SRT (some free
+      # camera apps only speak RTMP). Same path, same credentials.
+      - "1935:1935"
       # HLS preview, for checking the signal from any browser (credentials
       # in the URL — the browser asks for them once).
       - "8888:8888"

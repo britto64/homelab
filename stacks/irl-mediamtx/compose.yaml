@@ -34,6 +34,11 @@ services:
       # interpolates ${VAR} in its YAML nor accepts list-valued parameters
       # through the MTX_* env overrides).
       - ./mediamtx.yml:/mediamtx.yml:ro
+    networks:
+      # The bot resolves brittico-mediamtx here. Declaring `networks:`
+      # removes the stack's default network — that is the point: nothing
+      # else needs to reach this container.
+      - edge
 
 networks:
   # Shared network so the bot resolves this container by name. Declared

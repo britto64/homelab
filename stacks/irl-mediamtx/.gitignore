@@ -1,0 +1,3 @@
+# The rendered config holds the secrets (rendered from the example + .env).
+mediamtx.yml
+.env

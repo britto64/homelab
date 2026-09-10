@@ -28,29 +28,12 @@ services:
       # the NAS shell — bound to loopback.
       - "127.0.0.1:9997:9997"
     volumes:
-      # Rendered at start: MediaMTX does NOT interpolate ${VAR} inside its
-      # config, and authInternalUsers (a list) is not settable through the
-      # MTX_* env overrides — those cover scalar values only. So the @@…@@
-      # markers are substituted by the shell in the command below, using the
-      # env below; the committed file never holds a secret.
-      - ./mediamtx.yml.example:/mediamtx.yml.template:ro
-    networks:
-      - edge
-    environment:
-      IRL_SRT_USER: ${IRL_SRT_USER}
-      IRL_SRT_PASSWORD: ${IRL_SRT_PASSWORD}
-      IRL_API_USER: ${IRL_API_USER}
-      IRL_API_PASSWORD: ${IRL_API_PASSWORD}
-    # The image's entrypoint IS the mediamtx binary, so the render command
-    # needs an entrypoint override — without it `sh -c` would arrive as
-    # flags to mediamtx and the container would loop.
-    entrypoint: ["/bin/sh", "-c"]
-    command: >
-      "sed -e 's|@@IRL_SRT_USER@@|'"$${IRL_SRT_USER}"'|g'
-              -e 's|@@IRL_SRT_PASSWORD@@|'"$${IRL_SRT_PASSWORD}"'|g'
-              -e 's|@@IRL_API_USER@@|'"$${IRL_API_USER}"'|g'
-              -e 's|@@IRL_API_PASSWORD@@|'"$${IRL_API_PASSWORD}"'|g'
-              /mediamtx.yml.template > /mediamtx.yml && exec /mediamtx /mediamtx.yml"
+      # Rendered by render-config.sh at deploy (see that file's header for
+      # why the rendering lives here and not inside the container: the image
+      # is distroless — there is no shell to run sed in, and MediaMTX neither
+      # interpolates ${VAR} in its YAML nor accepts list-valued parameters
+      # through the MTX_* env overrides).
+      - ./mediamtx.yml:/mediamtx.yml:ro
 
 networks:
   # Shared network so the bot resolves this container by name. Declared

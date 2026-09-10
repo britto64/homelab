@@ -47,8 +47,8 @@ hlsPartDuration: 200ms
 
 authInternalUsers:
   # O Kennzy publica e o Britto lê; a mesma senha, dois papéis.
-  - user: @@IRL_SRT_USER@@
-    pass: @@IRL_SRT_PASSWORD@@
+  - user: kennzy
+    pass: SenhaLocalTeste123
     permissions:
       - action: publish
         path: kennzy
@@ -58,8 +58,8 @@ authInternalUsers:
         path: kennzy
   # A API é outro segredo: quem a lê consulta estado (e poderia mexer nos
   # paths), então tem usuário próprio e nunca viaja no streamid do celular.
-  - user: @@IRL_API_USER@@
-    pass: @@IRL_API_PASSWORD@@
+  - user: britto
+    pass: ApiLocalTeste456
     permissions:
       - action: api
 

@@ -1,0 +1,60 @@
+# tia-dash: the Tia Irannice delivery panel (dash.tiairannice.com).
+# One image: the web app, the API, SQLite and Litestream.
+#
+# Reached through the cloudflared tunnel on the `edge` network, never from the LAN: no
+# published port. Public hostnames (Zero Trust > Networks > Tunnels), both -> http://tia-dash:3000
+#   dash.tiairannice.com   behind a Cloudflare Access application (login)
+#   api.tiairannice.com    no Access; the app still refuses anything without a valid token
+#
+# Production compose lives in this repo (deploy/) and is shipped to the NAS by scripts/deploy.sh.
+# The homelab repo keeps a mirror at stacks/tia-dash/: keep both in sync.
+#
+# On the NAS: /mnt/StorageHD1/stacks/tia-dash/  (Dockge compatible)
+
+services:
+  tia-dash:
+    image: brittinho/tia-dash:${TIA_DASH_VERSION}
+    container_name: tia-dash
+    restart: unless-stopped
+
+    # Litestream sends the last WAL segment when it gets SIGTERM. Give it room.
+    stop_grace_period: 30s
+
+    networks:
+      - edge
+
+    volumes:
+      # The only state: dash.db (+ its -wal/-shm and the -litestream directory). Litestream
+      # replicates it to R2 every second; the entrypoint restores it if this directory is empty.
+      - ${TIA_DASH_DATA_HOST_PATH}:/app/data
+
+    environment:
+      AUTH_MODE: access
+      LITESTREAM_ENABLED: "true"
+    # CF_ACCESS_*, ADMIN_EMAILS and R2_* come from .env (never committed).
+    env_file: .env
+
+    # Nothing here needs to write outside /app/data, so nothing is allowed to.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+
+    # Queries the database before answering, so "healthy" means it can do its job.
+    # Native Node check: the slim image has no wget/curl.
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+networks:
+  # Shared with cloudflared so the tunnel can reach the container by name. Created once, by hand:
+  #   docker network create edge
+  edge:
+    external: true

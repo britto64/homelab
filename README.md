@@ -52,6 +52,7 @@ Every stack follows the same three rules:
 | [`cloudflared`](stacks/cloudflared/) | Cloudflare tunnel publishing `api.brittinho.com` without opening a port |
 | [`irl-mediamtx`](stacks/irl-mediamtx/) | The IRL ingest: Kennzy's phone publishes SRT, Britto's OBS pulls it, the bot watches the path API to flip IRL/Pausa scenes |
 | [`mosquitto`](stacks/mosquitto/) | The MQTT broker behind diskenzy's live sync — presence, calls, WebRTC signaling |
+| [`tia-dash`](stacks/tia-dash/) | The Tia Irannice delivery panel at `dash.tiairannice.com`: the web app, its API and SQLite in one image, with Litestream backups to R2 |
 
 ## Decisions
 

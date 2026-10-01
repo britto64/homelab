@@ -1,10 +1,12 @@
-# tia-dash: the Tia Irannice delivery panel (dash.tiairannice.com).
-# One image: the web app, the API, SQLite and Litestream.
+# tia-dash: the Tia Irannice delivery panel (dash.tiairannice.com) and its ordering site (pedir.tiairannice.com).
+# One image: the panel, the ordering site, the API, SQLite and Litestream.
 #
 # Reached through the cloudflared tunnel on the `edge` network, never from the LAN: no
-# published port. Public hostnames (Zero Trust > Networks > Tunnels), both -> http://tia-dash:3000
-#   dash.tiairannice.com   behind a Cloudflare Access application (login)
-#   api.tiairannice.com    no Access; the app still refuses anything without a valid token
+# published port. Public hostnames (Zero Trust > Networks > Tunnels), all -> http://tia-dash:3000
+#   dash.tiairannice.com    behind a Cloudflare Access application (login)
+#   api.tiairannice.com     no Access; the app still refuses anything without a valid token
+#   pedir.tiairannice.com   no Access: the customers' ordering site. Must be listed in SHOP_HOSTS (.env);
+#                           on this hostname only the site and /public/* exist, never the staff API
 #
 # Production compose lives in this repo (deploy/) and is shipped to the NAS by scripts/deploy.sh.
 # The homelab repo keeps a mirror at stacks/tia-dash/: keep both in sync.

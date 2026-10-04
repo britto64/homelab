@@ -1,0 +1,49 @@
+# Caddy for the LiveKit VPS, in LiveKit's own layout (livekit/generate). Rendered by render-config.sh;
+# the committed file holds @@ markers.
+#
+# One listener on :443 routes by the SNI of the TLS ClientHello, which is why this is the layer4 build:
+#   turn.<domain>     TLS ends here, plain TURN goes to the LiveKit built-in TURN on :5349
+#   livekit.<domain>  TLS ends here, HTTP/1.1 + WebSocket go to LiveKit on :7880
+# Certificates are issued by Let's Encrypt (ZeroSSL as fallback) through HTTP-01 on :80 — that is what
+# the plain A records and an open port 80 are for. No DNS provider token is involved.
+logging:
+  logs:
+    default:
+      level: INFO
+storage:
+  "module": "file_system"
+  "root": "/data"
+# No admin API on :2019. Config changes are a container restart.
+admin:
+  disabled: true
+apps:
+  tls:
+    certificates:
+      automate:
+        - @@LIVEKIT_DOMAIN@@
+        - @@TURN_DOMAIN@@
+  layer4:
+    servers:
+      main:
+        listen: [":443"]
+        routes:
+          - match:
+              - tls:
+                  sni:
+                    - "@@TURN_DOMAIN@@"
+            handle:
+              - handler: tls
+              - handler: proxy
+                upstreams:
+                  - dial: ["127.0.0.1:5349"]
+          - match:
+              - tls:
+                  sni:
+                    - "@@LIVEKIT_DOMAIN@@"
+            handle:
+              - handler: tls
+                connection_policies:
+                  - alpn: ["http/1.1"]
+              - handler: proxy
+                upstreams:
+                  - dial: ["127.0.0.1:7880"]

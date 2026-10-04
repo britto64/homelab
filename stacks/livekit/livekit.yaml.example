@@ -1,0 +1,56 @@
+# The LiveKit server config. The committed file holds @@ markers; render-config.sh fills them
+# from .env into livekit.yaml (which is never committed: it carries the API secret).
+#
+# Reference for every key: https://github.com/livekit/livekit/blob/master/config-sample.yaml
+
+# Signalling (WebSocket /rtc) and the admin REST API (/twirp/...). Behind Caddy, so loopback only.
+port: 7880
+bind_addresses:
+  - "@@LIVEKIT_HTTP_BIND@@"
+
+logging:
+  level: info
+  # sampling keeps a noisy room from filling the disk; the 10m x 3 json-file cap in compose.yaml
+  # is the hard limit
+  sample: true
+
+rtc:
+  # ICE over TCP: where a client lands when UDP is blocked outright. Cannot sit behind Caddy or any
+  # TLS terminator — it is raw TCP on the host.
+  tcp_port: 7881
+  # ICE over UDP, muxed onto a handful of ports instead of the default 50000-60000 range: the
+  # firewall rule is one line, and LiveKit asks for at least as many ports as vCPUs (4 here; 8 is
+  # headroom). Do not set port_range_start/end together with this: udp_port wins only if they are absent.
+  udp_port: 7882-7889
+  # On a public-IP VPS the address LiveKit advertises in its ICE candidates is the machine's own;
+  # use_external_ip finds it by STUN. With an explicit LIVEKIT_NODE_IP it is pinned instead.
+  use_external_ip: @@USE_EXTERNAL_IP@@
+  @@NODE_IP_LINE@@
+  # Congestion control (send-side estimation) and the TCP/TURN-TLS fallback are on by default and
+  # stay that way: they are the reason a bad link degrades instead of freezing.
+
+# The built-in TURN: the way out for networks that only let 443 through. Caddy terminates the TLS for
+# turn.<domain> on :443 and hands plain TURN to 5349 (external_tls). 3478/udp is TURN/UDP and STUN.
+turn:
+  enabled: true
+  domain: @@TURN_DOMAIN@@
+  tls_port: 5349
+  udp_port: 3478
+  external_tls: true
+
+keys:
+  @@LIVEKIT_API_KEY@@: @@LIVEKIT_API_SECRET@@
+
+# Room events for the bot. The signature is a JWT signed with this key (so the receiver verifies it with
+# the same pair); the body hash is inside the JWT.
+webhook:
+  api_key: @@LIVEKIT_API_KEY@@
+  urls:
+    - @@LIVEKIT_WEBHOOK_URL@@
+
+room:
+  # A token for a room that does not exist creates it: the bot never has to CreateRoom first.
+  auto_create: true
+  # Muting someone's track from the server is always allowed; UNmuting remotely is not (default).
+  # Left off on purpose: a moderator turning on another person's microphone is a privacy problem.
+  enable_remote_unmute: false

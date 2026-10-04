@@ -1,0 +1,96 @@
+# livekit: the SFU behind Diskenzy 2's voice, video and screen share.
+#
+# Built for a VPS with a public IPv4 (the default target is the Contabo VPS in
+# St. Louis), NOT for the NAS: media is UDP and TCP on raw ports, and neither the
+# Cloudflare tunnel nor the CGNAT in front of the house carries that. See
+# README.md ("Where it runs") for the NAS variant and what it takes.
+#
+# Layout, same as LiveKit's own generated install (livekit/generate):
+#   caddy    owns :80 and :443. It gets the certificates (Let's Encrypt, HTTP-01) and,
+#            with the layer4 plugin, routes :443 by SNI:
+#              livekit.<domain> -> TLS ends in Caddy -> 127.0.0.1:7880 (signalling, REST API)
+#              turn.<domain>    -> TLS ends in Caddy -> 127.0.0.1:5349 (the built-in TURN/TLS)
+#   livekit  the SFU. Signalling and the admin API listen on loopback only; the media ports
+#            (7881/tcp, 7882-7889/udp, 3478/udp) are the ones that face the internet.
+#
+# Both run with `network_mode: host`, which LiveKit itself recommends: no Docker NAT in the
+# media path (a UDP port range through the userland proxy is slow) and, a nice side effect,
+# ufw rules actually apply to the container's ports (published ports bypass ufw).
+#
+# Secrets: none in this file. livekit.yaml and caddy.yaml are rendered from .env by
+# render-config.sh and never committed.
+#
+# On the VPS: /opt/livekit/ (see DEPLOY.md)
+
+services:
+  livekit:
+    image: livekit/livekit-server:${LIVEKIT_VERSION}
+    container_name: brittico-livekit
+    restart: unless-stopped
+    network_mode: host
+    command: ["--config", "/etc/livekit.yaml"]
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+
+    # Nothing here writes to disk. Docker's default capabilities are kept on purpose: the
+    # rendered livekit.yaml is mode 600 and owned by whoever ran render-config.sh (the `deploy`
+    # user on the VPS), and root inside the container reads it through CAP_DAC_OVERRIDE. Dropping
+    # every capability looks tidier and makes the container fail with "permission denied".
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+
+    # One file descriptor per socket per participant plus the logs; the default (1024) is
+    # fine for 8 people but costs nothing to raise, and "too many open files" is a miserable
+    # way to find out the room outgrew the limit.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+
+    # `GET /` answers "OK" while the server is up. The image ships wget (not curl).
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:7880/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  caddy:
+    image: livekit/caddyl4:${CADDY_L4_VERSION}
+    container_name: brittico-livekit-caddy
+    restart: unless-stopped
+    network_mode: host
+    # Behind a profile so the NAS variant (signalling through the Cloudflare tunnel, no
+    # certificate here) can leave it out: COMPOSE_PROFILES=tls in .env turns it on.
+    profiles: ["tls"]
+    command: ["run", "--config", "/etc/caddy.yaml", "--adapter", "yaml"]
+    volumes:
+      - ./caddy.yaml:/etc/caddy.yaml:ro
+      # The ACME account and the certificates. Persisted on purpose: Let's Encrypt limits
+      # how many certificates a domain can get per week, and re-issuing on every
+      # `down`/`up` would burn that limit. Bind mount per ADR 001.
+      - ./caddy_data:/data
+    # Default capabilities again: 80/443 are privileged ports (NET_BIND_SERVICE) and the
+    # certificate store under ./caddy_data is root-owned (DAC_OVERRIDE).
+    security_opt:
+      - no-new-privileges:true
+    # Read-only root; Caddy's autosave and temp files go to tmpfs. The image does not set
+    # XDG_CONFIG_HOME, so without this it tries (and logs a failure) to write under /root.
+    read_only: true
+    environment:
+      XDG_CONFIG_HOME: /config
+    tmpfs:
+      - /tmp
+      - /config
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

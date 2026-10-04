@@ -1,0 +1,6 @@
+# The rendered configs hold the API secret (rendered from the examples + .env).
+livekit.yaml
+caddy.yaml
+# The ACME account key and the certificates.
+caddy_data/
+.env

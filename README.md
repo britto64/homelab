@@ -51,6 +51,7 @@ Every stack follows the same three rules:
 | [`brittinho-backend`](stacks/brittinho-backend/) | Server-side of brittinho.com: visit analytics, plus the site's own content — gallery, posts, comments, guestbox — and the image files behind it |
 | [`cloudflared`](stacks/cloudflared/) | Cloudflare tunnel publishing `api.brittinho.com` without opening a port |
 | [`irl-mediamtx`](stacks/irl-mediamtx/) | The IRL ingest: Kennzy's phone publishes SRT, Britto's OBS pulls it, the bot watches the path API to flip IRL/Pausa scenes |
+| [`livekit`](stacks/livekit/) | The SFU behind Diskenzy 2's voice, camera and screen share. Runs on a **VPS** (public IPv4, host networking, Caddy for TLS), not on the NAS — media is UDP and the house is behind CGNAT |
 | [`mosquitto`](stacks/mosquitto/) | The MQTT broker behind diskenzy's live sync — presence, calls, WebRTC signaling |
 | [`tia-dash`](stacks/tia-dash/) | The Tia Irannice delivery panel at `dash.tiairannice.com`: the web app, its API and SQLite in one image, with Litestream backups to R2 |
 
@@ -76,6 +77,7 @@ Procedures that are run rarely enough to be forgotten between runs.
 - [Importing the thumbnail library](docs/runbooks/importing-the-thumbnail-library.md) — the editor's images off shared hosting, onto the bot's volume
 - [Moving brittinho.com's data onto the NAS](docs/runbooks/migrating-the-site-data.md) — the gallery, posts, comments and guestbox, slice by slice
 - [Turning on the alerts' voice](docs/runbooks/turning-on-the-alerts-voice.md) — the `piper` container, and why the browser could not do it
+- [LiveKit on the VPS](docs/runbooks/livekit-on-the-vps.md) — DNS (grey cloud), TLS without a token, ports, the bot's webhook, TURN, sizing, updating ([`stacks/livekit/DEPLOY.md`](stacks/livekit/DEPLOY.md) has the exact commands)
 - [Setting up the overlay reserve](docs/runbooks/setting-up-the-overlay-reserve.md) — Pages, R2 and the Worker, so a blackout here does not blank the stream
 
 ## Status
